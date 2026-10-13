@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "GPS.h"
 #include "SDUtils.h"
+#include "BLEBridge.h"
 #include <esp_now.h>
 #include "esp_wifi.h"
 
@@ -620,8 +621,13 @@ static void coreParseAndLogText(const char* line) {
     altM = gps.altitude.meters();
     accM = gps.hdop.hdop();
   }
-  appendWigleRow(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM);
+  String ts = iso8601NowUTC();
+  appendWigleRow(bssid, ssid, auth, ts, ch, rssi, lat, lon, altM, accM);
   coreRecordsRx++;
+
+  // Mirror the same record to the BLE bridge (enqueue only; notified in tick).
+  bleBridgePushRecord(bssid.c_str(), ssid.c_str(), auth.c_str(),
+                      ch, rssi, lat, lon, altM, accM, ts.c_str());
 }
 
 // ================================================================
@@ -900,11 +906,18 @@ void enterCoreMode() {
   jcmkAddPeer(JCMK_BCAST);
 
   meshCoreActive = true;
+
+  // Start the BLE bridge so an iOS/iPad app can see live mesh data. BLE runs
+  // under WiFi/BLE coexistence alongside the active ESP-Now mesh.
+  bleBridgeBegin();
+
   Serial.println("[CORE] Ready — listening for nodes on ch 6");
 }
 
 void exitCoreMode() {
   Serial.println("[CORE] Exiting Core mode");
+  // Tear down BLE first so the controller RAM is freed before the WiFi reset.
+  bleBridgeStop();
   if (meshCoreActive) esp_now_deinit();
   meshCoreActive = false;
   coreNodeCount  = 0;
@@ -958,6 +971,10 @@ void coreModeTick() {
     }
   }
   if (changed) coreReassignChannels();
+
+  // 5. Service the BLE bridge: drain record queue, refresh roster/status,
+  //    apply any control commands from the app.
+  bleBridgeTick();
 }
 
 // ================================================================

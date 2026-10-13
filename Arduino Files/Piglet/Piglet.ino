@@ -35,6 +35,7 @@
 #include "WigleUpload.h"
 #include "WebUI.h"
 #include "MeshNode.h"
+#include "BLEBridge.h"
 #include "PigWorld.h"
 
 // -------- Battery Test (uncomment to enable) --------
@@ -718,7 +719,16 @@ void loop() {
   // now also the PigWorld scene Node started on the Pig page — so key off the role flags
   // rather than the page number, and fall through to the normal scan path otherwise.
   if (meshCoreActive) {
-    coreModeTick();
+    // App asked (over BLE) to leave the mesh. Mirror a button-exit off page 5
+    // so exitCoreMode() runs on the normal path — never from inside coreModeTick().
+    if (bleBridgeExitRequested) {
+      bleBridgeExitRequested = false;
+      uint8_t oldPage = currentPage;
+      currentPage = 0;
+      onPageChange(oldPage, currentPage);   // oldPage==5 triggers exitCoreMode()
+    } else {
+      coreModeTick();
+    }
   } else if (meshNodeActive) {
     nodeModeTick();
   } else {
