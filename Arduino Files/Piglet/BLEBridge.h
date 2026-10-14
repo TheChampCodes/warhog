@@ -21,7 +21,9 @@
 //      notifications, and applies pending control commands.
 //    - Nothing here is called from the ESP-Now RX callback or an ISR.
 //
-//  Library: NimBLE-Arduino by h2zero (v1.4.x). Lightweight vs Bluedroid.
+//  Library: NimBLE-Arduino by h2zero (v2.x). Lightweight vs Bluedroid.
+//  v2.x is required by the Arduino-ESP32 3.x / IDF 5 core this firmware
+//  builds against; v1.4.x only compiles on the older 2.x core (IDF 4).
 // ================================================================
 
 #define BLE_BRIDGE_PROTO_VER 1

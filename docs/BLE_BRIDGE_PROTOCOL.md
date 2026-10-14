@@ -155,4 +155,4 @@ Unknown commands are ignored. Control writes are never processed inside the BLE 
 | `MeshNode.cpp` → `coreModeTick()` | At the end call `bleBridgeTick();` |
 | `Piglet.ino` (optional) | If `bleBridgeExitRequested` is set, run the normal "leave mesh page" path. |
 
-**Library:** NimBLE-Arduino by h2zero, **v1.4.x** (lightweight; ~1/3 the RAM of Bluedroid). Pinned for the widely-installed 1.4 API. On NimBLE-Arduino **v2.x** the only change needed is the `onWrite` / `onConnect` callback signatures (they gain a `NimBLEConnInfo&` parameter) — noted inline in `BLEBridge.cpp`.
+**Library:** NimBLE-Arduino by h2zero, **v2.x** (`^2.2.3`; lightweight, ~1/3 the RAM of Bluedroid). v2.x is required because this firmware builds against the Arduino-ESP32 3.x / IDF 5 core (pioarduino `55.03.39`); NimBLE-Arduino 1.4.x only compiles on the older 2.x core (IDF 4). The v2.x API differences handled in `BLEBridge.cpp` are: the `onConnect` / `onDisconnect` / `onWrite` callbacks gain a `NimBLEConnInfo&` parameter (and `onDisconnect` a trailing `int reason`), `setPower()` takes a dBm `int`, and scan response is enabled via `enableScanResponse(true)` (was `setScanResponse(true)`).

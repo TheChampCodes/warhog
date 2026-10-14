@@ -73,26 +73,29 @@ static void macToStr(const uint8_t* m, char* out /*>=18*/) {
 // ================================================================
 //  Callbacks
 //
-//  NimBLE-Arduino v1.4.x signatures are used below. On v2.x, add a
+//  NimBLE-Arduino v2.x signatures (the version this firmware builds
+//  against on the Arduino-ESP32 3.x / IDF 5 core). v2.x adds a
 //  `NimBLEConnInfo& connInfo` parameter to onConnect/onDisconnect/onWrite
-//  (everything else is identical).
+//  and gives onDisconnect a trailing `int reason` — everything else is
+//  identical. To build against the old v1.4.x API, drop those extra
+//  parameters.
 // ================================================================
 class BridgeServerCB : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* s) override {
+  void onConnect(NimBLEServer* s, NimBLEConnInfo& connInfo) override {
     connectedCount++;
     // Keep advertising so a second central (or reconnect) can still find us.
     NimBLEDevice::startAdvertising();
   }
-  void onDisconnect(NimBLEServer* s) override {
+  void onDisconnect(NimBLEServer* s, NimBLEConnInfo& connInfo, int reason) override {
     if (connectedCount) connectedCount--;
     NimBLEDevice::startAdvertising();
   }
 };
 
 class ControlCB : public NimBLECharacteristicCallbacks {
-  void onWrite(NimBLECharacteristic* c) override {
+  void onWrite(NimBLECharacteristic* c, NimBLEConnInfo& connInfo) override {
     // Do NO real work here — just classify and flag. Applied in tick().
-    std::string v = c->getValue();          // v2.x: NimBLEAttValue, converts to std::string
+    std::string v = c->getValue();          // NimBLEAttValue, converts to std::string
     if (v.empty()) return;
     if      (v.find("clearStats") != std::string::npos) pendingClearStats = true;
     else if (v.find("exitMesh")   != std::string::npos) bleBridgeExitRequested = true;
@@ -115,7 +118,7 @@ void bleBridgeBegin() {
 
   NimBLEDevice::init(std::string(name.c_str()));
   NimBLEDevice::setMTU(247);                  // request a larger ATT MTU
-  NimBLEDevice::setPower(ESP_PWR_LVL_P9);     // +9 dBm — max TX power for field range
+  NimBLEDevice::setPower(9);                   // +9 dBm — max TX power (v2.x takes dBm int)
 
   bleServer = NimBLEDevice::createServer();
   bleServer->setCallbacks(&serverCb);
@@ -138,7 +141,7 @@ void bleBridgeBegin() {
 
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
   adv->addServiceUUID(SVC_UUID);
-  adv->setScanResponse(true);
+  adv->enableScanResponse(true);              // v2.x: was setScanResponse(true) in v1.4.x
   NimBLEDevice::startAdvertising();
 
   recHead = recTail = 0;
