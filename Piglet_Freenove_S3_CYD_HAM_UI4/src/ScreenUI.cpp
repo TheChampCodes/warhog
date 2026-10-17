@@ -123,6 +123,7 @@ const Choice SPEED_UNITS[] = {{"kmh", "km/h"}, {"mph", "mph"}};
 const Choice BOARDS[] = {{"auto", "Auto detect"}, {"s3", "XIAO S3"}, {"exp", "S3 Expansion"},
                          {"c5", "XIAO C5"}, {"c6", "XIAO C6"}, {"c3", "XIAO C3"}};
 const Choice ON_OFF[] = {{"false", "Disabled"}, {"true", "Enabled"}};
+const Choice BLE_APPS[] = {{"biscuit", "Biscuit Manager"}, {"wardrivego", "Wardrive Go"}};
 const Choice MESH_MODES[] = {{"none", "None (solo)"}, {"node", "Node (scanner)"}, {"core", "Core (coordinator)"}, {"off", "Off (radio free)"}};
 const Choice ROTATION[] = {{"false", "Normal"}, {"true", "Rotated 180"}};
 
@@ -145,6 +146,7 @@ const SettingDef SETTINGS[] = {
   {SettingKind::Choice, "SCAN MODE", "scanMode", CHOICES(SCAN_MODES), false, nullptr},
   {SettingKind::Choice, "BLUETOOTH SCAN", "bluetoothScan", CHOICES(ON_OFF), false, "Log BLE for WDG points"},
   {SettingKind::Choice, "BISCUIT REPORT", "biscuitReport", CHOICES(ON_OFF), false, "Report to Biscuit Mgr"},
+  {SettingKind::Choice, "CORE BLE APP", "blePersonality", CHOICES(BLE_APPS), true, "Biscuit or Wardrive Go"},
   {SettingKind::Choice, "SPEED UNITS", "speedUnits", CHOICES(SPEED_UNITS), false, nullptr},
   {SettingKind::Choice, "MESH MODE ON BOOT", "meshModeOnBoot", CHOICES(MESH_MODES), true, nullptr},
 
@@ -204,6 +206,7 @@ String settingValue(const char* key) {
   if (k == "scanMode") return cfg.scanMode;
   if (k == "bluetoothScan") return boolText(cfg.bluetoothScan);
   if (k == "biscuitReport") return boolText(cfg.biscuitReport);
+  if (k == "blePersonality") return cfg.blePersonality;
   if (k == "speedUnits") return cfg.speedUnits;
   if (k == "meshModeOnBoot") return cfg.meshModeOnBoot;
   if (k == "deviceName") return cfg.deviceName;

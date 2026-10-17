@@ -115,6 +115,10 @@ void cfgAssignKV(const String& k, const String& v) {
     String vv = v; vv.toLowerCase();
     cfg.biscuitReport = (vv == "true" || vv == "1");
   }
+  else if (k == "blePersonality") {
+    String vv = v; vv.toLowerCase();
+    if (vv == "biscuit" || vv == "wardrivego") cfg.blePersonality = vv;
+  }
   else if (k == "board") {
     String vv = v; vv.toLowerCase();
     if (vv == "auto" || vv == "s3" || vv == "exp" || vv == "c5" || vv == "c6" || vv == "c3") cfg.board = vv;
@@ -215,6 +219,7 @@ bool loadConfigFromSD() {
     cfg.wardriverPsk    = doc["wardriverPsk"]    | cfg.wardriverPsk;
     cfg.gpsBaud         = doc["gpsBaud"]         | cfg.gpsBaud;
     cfg.scanMode        = doc["scanMode"]        | cfg.scanMode;
+    cfg.blePersonality  = doc["blePersonality"]  | cfg.blePersonality;
 
     // Save as new format
     bool ok = saveConfigToSD();
@@ -281,6 +286,10 @@ bool saveConfigToSD() {
 
   f.println("# Report to a Biscuit Manager over ESP-NOW while wardriving (announce + forward networks): true or false");
   f.print("biscuitReport=");   f.println(cfg.biscuitReport ? "true" : "false");
+  f.println("");
+
+  f.println("# Core-mode BLE personality: biscuit (Biscuit Manager) or wardrivego (Wardrive Go / WarBLE Go)");
+  f.print("blePersonality="); f.println(cfg.blePersonality);
   f.println("");
 
   f.println("# Speed display: kmh or mph");

@@ -24,6 +24,9 @@ extern uint32_t jcmkSentCount;
 // (via the send-status callback) -- distinguishes "attempted" from
 // "actually transmitted" since broadcast frames have no delivery ACK at all.
 extern uint32_t jcmkSendFailCount;
+// Mesh size (total active nodes) as last reported by the Core's heartbeat.
+// A node's only view of the whole mesh; drives the herd count on screen.
+extern uint8_t  jcmkMeshHerd;
 
 // Lifecycle — called from Piglet.ino on page enter/exit
 void enterNodeMode();

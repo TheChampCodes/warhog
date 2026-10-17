@@ -1,6 +1,8 @@
 #include "MeshNode.h"
 #include "Globals.h"
 #include "Config.h"
+#include "BiscuitCompat.h"   // present as a Biscuit Pro to the Biscuit Manager app while in Core mode
+#include "IosEspCompat.h"    // or present as a RocketGod iosESP bridge to the Wardrive Go app (toggle in settings)
 #include "GPS.h"
 #include "SDUtils.h"
 #include "BleScanner.h"
@@ -20,6 +22,18 @@ static const uint32_t JCMK_HB_MS          = 5000;
 static const uint32_t NODE_SCAN_DWELL_MS  = 80;    // ms per channel (JCMK CHANNEL_TIMER)
 static const uint32_t NODE_ADMIN_WIN_MS   = 500;   // ch-6 window after each full cycle
 #define JCMK_TEXT_MAX 200
+
+// Which phone-app BLE personality this Core-mode session advertises. Latched at
+// enterCoreMode() from cfg.blePersonality so begin/stop/tick/push stay symmetric
+// even if the setting is toggled mid-session (takes effect on next Core entry).
+static bool coreBleIsIosEsp = false;
+
+// Piglet mesh-size extension: the Core stamps the total active-node count behind
+// this marker in its broadcast heartbeat so every node can show the true herd
+// count. Stock JCMK/Biscuit nodes ignore heartbeat text, so this is harmless.
+// Must match the marker in Arduino Files/Piglet and c3_node.
+static const char*   PIGLET_MARKER     = "PIGLET1";
+static const uint8_t PIGLET_MARKER_LEN = 7;
 
 enum JcmkMsgType : uint8_t {
   JCMK_MSG_CORE_REQUEST = 1,
@@ -114,7 +128,23 @@ static const uint32_t CORE_NODE_TIMEOUT = 90000;  // 90 s — generous for many-
 #define CORE_REQ_QUEUE  16
 #define CORE_TEXT_QUEUE 192  // sized for burst from 12 nodes × ~15 networks each
 
-struct CorReqSlot  { uint8_t mac[6]; bool isBiscuit; };
+struct CorReqSlot  { uint8_t mac[6]; bool isBiscuit; bool band24; };
+
+// Dwell (ms) the Core tells nodes to spend per channel. Longer than the old 80 ms
+// so a node reliably catches a beacon (APs beacon ~every 100 ms) now that
+// band-aware assignment gives each node fewer, better channels.
+static const uint32_t MESH_NODE_DWELL_MS = 110;
+
+// A node declares itself 2.4 GHz-only by putting the marker "B24" in its
+// CORE_REQUEST / HEARTBEAT text; the Core then never assigns it 5 GHz.
+static bool jcmkPacketIsBand24(const uint8_t* data, int len) {
+  if (len < (int)sizeof(jcmk_text_msg_t)) return false;
+  const jcmk_text_msg_t* tm = (const jcmk_text_msg_t*)data;
+  uint16_t slen = (tm->len < JCMK_TEXT_MAX) ? tm->len : JCMK_TEXT_MAX;
+  for (uint16_t i = 0; i + 3 <= slen; i++)
+    if (tm->text[i] == 'B' && tm->text[i + 1] == '2' && tm->text[i + 2] == '4') return true;
+  return false;
+}
 struct CorTextSlot { char    line[JCMK_TEXT_MAX + 1]; };
 
 static CorReqSlot          coreReqBuf[CORE_REQ_QUEUE];
@@ -164,12 +194,19 @@ static bool jcmkAddPeer(const uint8_t* mac) {
 // Biscuit Pro drops any packet < 212 bytes; JCMK Cores only check len >= 5
 // so full-size packets are backward-compatible with both coordinators.
 
+// A non-C5 board is 2.4 GHz-only: declare "B24" so the Core never assigns it
+// 5 GHz channels it can't tune. C5 boards send nothing (default = dual-band).
+static void jcmkStampBand(jcmk_text_msg_t& msg) {
+  if (!wardriverIsC5()) { memcpy(msg.text, "B24", 3); msg.text[3] = '\0'; msg.len = 3; }
+  else                  { msg.len = 0; }
+}
+
 static void jcmkSendCoreRequest() {
   jcmk_text_msg_t msg = {};
   memcpy(msg.magic, JCMK_MAGIC, 4);
   msg.type    = JCMK_MSG_CORE_REQUEST;
   msg.counter = 0;
-  msg.len     = 0;
+  jcmkStampBand(msg);
   esp_now_send(JCMK_BCAST, (uint8_t*)&msg, sizeof(msg));
 }
 
@@ -178,7 +215,7 @@ static void jcmkSendHeartbeat() {
   memcpy(msg.magic, JCMK_MAGIC, 4);
   msg.type    = JCMK_MSG_HEARTBEAT;
   msg.counter = ++jcmkHbCounter;
-  msg.len     = 0;
+  jcmkStampBand(msg);
   esp_now_send(JCMK_BCAST, (uint8_t*)&msg, sizeof(msg));
 }
 
@@ -228,35 +265,34 @@ static void coreSendReply(const uint8_t* mac) {
 // Send Biscuit Node a role assignment (MSG_ROLE_ASSIGN, type=5) then a channel
 // config (MSG_CONFIG_UPDATE, type=10). Both packets must be full size (212 bytes).
 // Called from coreReassignChannels / coreResendAdminToAll for isBiscuit nodes.
-static void coreSendBiscuitRoleAndConfig(const uint8_t* mac, uint8_t startIdx, uint8_t endIdx) {
-  // Step 1: role assignment — text[0] = 1 (ROLE_WIFI)
-  // Biscuit MSG_ROLE_ASSIGN = type 5, same numeric value as JCMK_MSG_ADMIN.
-  // After receiving this, Biscuit transitions from STATE_WAITING_ROLE to STATE_SCANNING.
+static void coreSendBiscuitChannels(const uint8_t* mac, const uint8_t* chans, uint8_t n) {
+  if (n == 0) return;
+  // Step 1: role assignment — text[0] = 1 (ROLE_WIFI). Biscuit MSG_ROLE_ASSIGN
+  // = type 5. After receiving this the node transitions to STATE_SCANNING.
   jcmk_text_msg_t roleMsg = {};
   memcpy(roleMsg.magic, JCMK_MAGIC, 4);
-  roleMsg.type    = JCMK_MSG_ADMIN;  // = 5 = MSG_ROLE_ASSIGN on Biscuit
+  roleMsg.type    = JCMK_MSG_ADMIN;
   roleMsg.counter = 0;
   roleMsg.len     = 1;
   roleMsg.text[0] = 1;  // ROLE_WIFI
   esp_now_send(mac, (uint8_t*)&roleMsg, sizeof(roleMsg));
   delay(10);
 
-  // Step 2: channel config — "channels=1,2,...;dwell=80"
-  // Biscuit MSG_CONFIG_UPDATE = type 10. Payload uses actual channel numbers
-  // (not indices) in comma-separated list.
+  // Step 2: channel config — "channels=<explicit list>;dwell=N" (MSG_CONFIG_UPDATE,
+  // type 10). The list is the exact set the node should scan — sparse (e.g. 1,6,11)
+  // for 2.4-only nodes, a 5 GHz slice for dual-band nodes.
   jcmk_text_msg_t cfgMsg = {};
   memcpy(cfgMsg.magic, JCMK_MAGIC, 4);
-  cfgMsg.type    = 10;  // MSG_CONFIG_UPDATE
+  cfgMsg.type    = 10;
   cfgMsg.counter = 0;
 
   String chList = "channels=";
-  uint8_t end = (endIdx < JCMK_NUM_CHANNELS) ? endIdx : (JCMK_NUM_CHANNELS - 1);
-  for (uint8_t j = startIdx; j <= end; j++) {
-    if (j > startIdx) chList += ",";
-    chList += String(JCMK_CHANNELS[j]);
+  for (uint8_t i = 0; i < n; i++) {
+    if (i) chList += ",";
+    chList += String(chans[i]);
   }
   chList += ";dwell=";
-  chList += String((uint32_t)NODE_SCAN_DWELL_MS);
+  chList += String((uint32_t)MESH_NODE_DWELL_MS);
 
   uint16_t slen = (chList.length() < JCMK_TEXT_MAX)
                 ? (uint16_t)chList.length() : (uint16_t)JCMK_TEXT_MAX;
@@ -265,10 +301,7 @@ static void coreSendBiscuitRoleAndConfig(const uint8_t* mac, uint8_t startIdx, u
   cfgMsg.text[slen] = '\0';
   esp_now_send(mac, (uint8_t*)&cfgMsg, sizeof(cfgMsg));
 
-  Serial.printf("[CORE] Biscuit role+config sent (ch %d-%d, dwell %dms)\n",
-    JCMK_CHANNELS[startIdx],
-    JCMK_CHANNELS[end],
-    (int)NODE_SCAN_DWELL_MS);
+  Serial.printf("[CORE] cfg -> %02X%02X: %s\n", mac[4], mac[5], chList.c_str());
 }
 
 // ESP-Now receive callback — handles both Node and Core roles
@@ -290,6 +323,7 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         memcpy(coreReqBuf[coreReqTail].mac, info->src_addr, 6);
         // Biscuit Node always sends full-size packets (212 bytes); JCMK sends 5 bytes.
         coreReqBuf[coreReqTail].isBiscuit = (len >= (int)sizeof(jcmk_text_msg_t));
+        coreReqBuf[coreReqTail].band24    = jcmkPacketIsBand24(data, len);
         coreReqTail = next;
       }
     } else if (type == JCMK_MSG_TEXT && len >= 11) {
@@ -318,6 +352,7 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
           if (nxt != coreReqHead) {
             memcpy(coreReqBuf[coreReqTail].mac, info->src_addr, 6);
             coreReqBuf[coreReqTail].isBiscuit = (len >= (int)sizeof(jcmk_text_msg_t));
+            coreReqBuf[coreReqTail].band24    = jcmkPacketIsBand24(data, len);
             coreReqTail = nxt;
           }
         }
@@ -336,6 +371,7 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         if (nxt != coreReqHead) {
           memcpy(coreReqBuf[coreReqTail].mac, info->src_addr, 6);
           coreReqBuf[coreReqTail].isBiscuit = (len >= (int)sizeof(jcmk_text_msg_t));
+          coreReqBuf[coreReqTail].band24    = jcmkPacketIsBand24(data, len);
           coreReqTail = nxt;
         }
       }
@@ -359,10 +395,11 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
 // ================================================================
 //  Core mode helpers (main loop only — not ISR-safe)
 // ================================================================
-static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit) {
+static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit, bool band24) {
   for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
     if (coreNodes[i].active && memcmp(coreNodes[i].mac, mac, 6) == 0) {
       coreNodes[i].lastHbMs = millis();
+      coreNodes[i].band24Only = band24;  // pick up a (re)declared band; caller reassigns
       return;  // already registered
     }
   }
@@ -372,6 +409,7 @@ static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit) {
       coreNodes[i].lastHbMs  = millis();
       coreNodes[i].recordsRx = 0;
       coreNodes[i].isBiscuit = isBiscuit;
+      coreNodes[i].band24Only = band24;
       memcpy(coreNodes[i].mac, mac, 6);
       coreNodeCount++;
       jcmkAddPeer(mac);
@@ -388,77 +426,65 @@ static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit) {
   Serial.println("[CORE] Max nodes reached");
 }
 
-static void coreReassignChannels() {
-  // Build list of active slot indices
-  uint8_t slots[CORE_MAX_NODES];
-  uint8_t count = 0;
-  for (uint8_t i = 0; i < CORE_MAX_NODES; i++)
-    if (coreNodes[i].active) slots[count++] = i;
-  if (count == 0) return;
-
-  // Split JCMK_CHANNELS[] evenly; last node gets the remainder
-  uint8_t perNode  = JCMK_NUM_CHANNELS / count;
-  uint8_t startIdx = 0;
-  for (uint8_t n = 0; n < count; n++) {
-    coreNodes[slots[n]].startIdx = startIdx;
-    coreNodes[slots[n]].endIdx   = (n < count - 1)
-                                   ? (startIdx + perNode - 1)
-                                   : (JCMK_NUM_CHANNELS - 1);
-    startIdx += perNode;
-  }
-  coreAssignVer++;
-
-  // Send assignment to each node using its protocol:
-  // - Biscuit: MSG_ROLE_ASSIGN (type=5, text[0]=ROLE_WIFI) + MSG_CONFIG_UPDATE (type=10, channel string)
-  // - JCMK:    jcmk_admin_msg_t (type=5, packed binary channel indices)
-  for (uint8_t n = 0; n < count; n++) {
-    uint8_t slot = slots[n];
-    if (coreNodes[slot].isBiscuit) {
-      coreSendBiscuitRoleAndConfig(coreNodes[slot].mac,
-                                   coreNodes[slot].startIdx,
-                                   coreNodes[slot].endIdx);
-    } else {
-      jcmk_admin_msg_t msg;
-      memcpy(msg.magic, JCMK_MAGIC, 4);
-      msg.type               = JCMK_MSG_ADMIN;
-      msg.node_count         = count;
-      msg.assignment_version = coreAssignVer;
-      msg.node_index         = n;
-      msg.start_channel_idx  = coreNodes[slot].startIdx;
-      msg.end_channel_idx    = coreNodes[slot].endIdx;
-      esp_now_send(coreNodes[slot].mac, (uint8_t*)&msg, sizeof(msg));
-    }
-    delay(10);
-  }
-  Serial.printf("[CORE] Reassigned channels: %d nodes v%d\n", count, coreAssignVer);
-}
-
-// Re-send the current ADMIN assignment to every node.
-// Called periodically so nodes that missed the update (e.g. mid-scan) recover.
-static void coreResendAdminToAll() {
-  if (coreNodeCount == 0) return;
-  uint8_t n = 0;
+// Band-aware channel assignment. 2.4 GHz-only nodes (declared via "B24") scan
+// the productive 2.4 set {1,6,11}; dual-band (C5) nodes split the 5 GHz space.
+// If there are no dual nodes, 5 GHz simply isn't covered (nothing can scan it);
+// if there are no 2.4-only nodes, the first dual node also takes {1,6,11} so
+// 2.4 stays covered. All of the user's nodes are Biscuit-type (full-size
+// packets), so every node gets the explicit "channels=..." string config.
+static void coreAssignAndSend(bool bumpVersion) {
+  uint8_t dual[CORE_MAX_NODES], only24[CORE_MAX_NODES];
+  uint8_t nDual = 0, n24 = 0;
   for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
     if (!coreNodes[i].active) continue;
-    if (coreNodes[i].isBiscuit) {
-      coreSendBiscuitRoleAndConfig(coreNodes[i].mac,
-                                   coreNodes[i].startIdx,
-                                   coreNodes[i].endIdx);
-    } else {
-      jcmk_admin_msg_t msg;
-      memcpy(msg.magic, JCMK_MAGIC, 4);
-      msg.type               = JCMK_MSG_ADMIN;
-      msg.node_count         = coreNodeCount;
-      msg.assignment_version = coreAssignVer;
-      msg.node_index         = n;
-      msg.start_channel_idx  = coreNodes[i].startIdx;
-      msg.end_channel_idx    = coreNodes[i].endIdx;
-      esp_now_send(coreNodes[i].mac, (uint8_t*)&msg, sizeof(msg));
-    }
-    n++;
+    if (coreNodes[i].band24Only) only24[n24++] = i;
+    else                         dual[nDual++] = i;
+  }
+  if (nDual == 0 && n24 == 0) return;
+  if (bumpVersion) coreAssignVer++;
+
+  static const uint8_t CH24[3] = {1, 6, 11};
+  const uint8_t* ch5 = &JCMK_CHANNELS[14];                 // ch 36..177
+  const uint8_t  n5  = (uint8_t)(JCMK_NUM_CHANNELS - 14);  // 26 channels
+
+  // 2.4-only nodes: each scans 1/6/11.
+  for (uint8_t k = 0; k < n24; k++) {
+    coreNodes[only24[k]].startIdx = 0;  coreNodes[only24[k]].endIdx = 10;  // display only
+    coreSendBiscuitChannels(coreNodes[only24[k]].mac, CH24, 3);
     delay(10);
   }
+
+  // Dual-band nodes: split the 5 GHz channels into contiguous slices.
+  if (nDual > 0) {
+    uint8_t per = (nDual <= n5) ? (uint8_t)(n5 / nDual) : 1;
+    if (per == 0) per = 1;
+    for (uint8_t k = 0; k < nDual; k++) {
+      uint8_t list[32];
+      uint8_t nl = 0;
+      if (n24 == 0 && k == 0) { list[nl++] = 1; list[nl++] = 6; list[nl++] = 11; }
+      uint8_t s = (uint8_t)(k * per);
+      if (s < n5) {
+        uint8_t e = (k == nDual - 1) ? (uint8_t)(n5 - 1) : (uint8_t)(s + per - 1);
+        if (e >= n5) e = (uint8_t)(n5 - 1);
+        for (uint8_t j = s; j <= e && nl < sizeof(list); j++) list[nl++] = ch5[j];
+        coreNodes[dual[k]].startIdx = (uint8_t)(14 + s);
+        coreNodes[dual[k]].endIdx   = (uint8_t)(14 + e);
+      }
+      if (nl == 0) { list[nl++] = 1; list[nl++] = 6; list[nl++] = 11; }  // safety
+      coreSendBiscuitChannels(coreNodes[dual[k]].mac, list, nl);
+      delay(10);
+    }
+  }
+
+  Serial.printf("[CORE] Band-aware assign: %u dual(5G) + %u 2.4-only, v%d\n",
+                (unsigned)nDual, (unsigned)n24, coreAssignVer);
 }
+
+static void coreReassignChannels() { coreAssignAndSend(true);  }
+
+// Re-send the current assignment to every node (nodes that missed an update
+// mid-scan recover). Does not bump the version.
+static void coreResendAdminToAll() { if (coreNodeCount) coreAssignAndSend(false); }
 
 static void coreSendHeartbeatToAll() {
   // Broadcast a single heartbeat instead of per-node unicast.
@@ -469,7 +495,12 @@ static void coreSendHeartbeatToAll() {
   memcpy(msg.magic, JCMK_MAGIC, 4);
   msg.type    = JCMK_MSG_HEARTBEAT;
   msg.counter = ++coreHbCounter;
-  msg.len     = 0;
+  // Piglet extension: carry the authoritative mesh size (total active nodes)
+  // so every node can display the real herd count. Marker keeps it invisible
+  // to stock JCMK/Biscuit nodes, which ignore heartbeat text.
+  memcpy(msg.text, PIGLET_MARKER, PIGLET_MARKER_LEN);
+  msg.text[PIGLET_MARKER_LEN] = (char)coreNodeCount;
+  msg.len     = PIGLET_MARKER_LEN + 1;
   esp_now_send(JCMK_BCAST, (uint8_t*)&msg, sizeof(msg));
 }
 
@@ -495,6 +526,10 @@ static void coreParseAndLogText(const char* line) {
     accM = gps.hdop.hdop();
   }
   appendWigleRow(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM);
+  // Mirror each AP to whichever phone app this Core is paired with, so it plots
+  // in real time on the map (personality chosen by the CORE BLE APP setting).
+  if (coreBleIsIosEsp) iosEspCompatPushAp(bssid.c_str(), ssid.c_str(), ch, rssi, auth.c_str());
+  else                 biscuitCompatPushAp(bssid.c_str(), ssid.c_str(), ch, rssi, auth.c_str());
   coreRecordsRx++;
 
   // Roll the cluster's finds into the same counters solo wardriving uses, so the
@@ -728,11 +763,33 @@ void enterCoreMode() {
   jcmkAddPeer(JCMK_BCAST);
 
   meshCoreActive = true;
-  Serial.println("[CORE] Ready — listening for nodes on ch 6");
+
+  // Bring BLE back up (it was shut down above for clean ESP-NOW airtime) so the
+  // Biscuit Manager app sees this unit as a Biscuit Pro named "Piglet-Core...".
+  // BLE + ESP-NOW coexist under the radio arbiter, same as the Arduino bridge;
+  // expect a small ESP-NOW throughput cost while a phone is connected.
+  // Latch the BLE personality for this Core session from the CORE BLE APP
+  // setting, then stand up the matching standalone bridge.
+  coreBleIsIosEsp = (cfg.blePersonality == "wardrivego");
+  if (coreBleIsIosEsp) {
+    // Advertises as "iosESP-XXXX" to the RocketGod Wardrive Go / WarBLE Go app.
+    iosEspCompatBeginStandalone();
+  } else {
+    // Keep the Biscuit-facing GAP name SHORT ("Piglet"): it must fit the 31-byte
+    // advertisement alongside the 128-bit Biscuit service UUID, or NimBLE drops
+    // the local name and the app shows "Unknown".
+    biscuitCompatBeginStandalone("Piglet");
+  }
+
+  Serial.printf("[CORE] Ready — listening for nodes on ch 6 (BLE app: %s)\n",
+                coreBleIsIosEsp ? "Wardrive Go" : "Biscuit Manager");
 }
 
 void exitCoreMode() {
   Serial.println("[CORE] Exiting Core mode");
+  // Tear down whichever BLE bridge this session brought up, before WiFi/ESP-NOW churn.
+  if (coreBleIsIosEsp) iosEspCompatStopStandalone();
+  else                 biscuitCompatStopStandalone();
   if (meshCoreActive) esp_now_deinit();
   meshCoreActive = false;
   coreNodeCount  = 0;
@@ -832,13 +889,51 @@ void biscuitReporterFlush() {
 
 void coreModeTick() {
   if (!meshCoreActive) return;
+  // Service whichever phone-app bridge this session brought up.
+  if (coreBleIsIosEsp) iosEspCompatTick();   // Wardrive Go: commands + WD: telemetry
+  else                 biscuitCompatTick();  // Biscuit Manager: commands + telemetry
   uint32_t now = millis();
+
+  // Stream the device position ~1 Hz so the app can pin APs to our location.
+  static uint32_t biscuitGpsMs = 0;
+  if (gpsHasFix && now - biscuitGpsMs >= 1000) {
+    biscuitGpsMs = now;
+    if (coreBleIsIosEsp)
+      iosEspCompatPushGps(gps.location.lat(), gps.location.lng(),
+                          gps.altitude.meters(), (int)gps.satellites.value());
+    else
+      biscuitCompatPushGps(gps.location.lat(), gps.location.lng(),
+                           gps.altitude.meters(), gps.hdop.hdop());
+  }
+
+  // Node-roster snapshot is Biscuit-only (Wardrive Go has no node roster concept).
+  // Stream it to the Biscuit app's Node Management screen — on request
+  // (CMD:getnodesnapshot) or every ~3 s so it stays live. Capture the active node
+  // indices first so the header count always matches the records.
+  static uint32_t biscuitSnapMs = 0;
+  if (!coreBleIsIosEsp && biscuitCompatActive() &&
+      (biscuitCompatConsumeSnapshotRequest() || now - biscuitSnapMs >= 3000)) {
+    biscuitSnapMs = now;
+    uint8_t  act[CORE_MAX_NODES];
+    uint16_t n = 0;
+    for (uint8_t i = 0; i < CORE_MAX_NODES; i++)
+      if (coreNodes[i].active) act[n++] = i;
+    uint16_t sid = biscuitCompatSnapshotBegin(n);
+    for (uint16_t k = 0; k < n; k++) {
+      CoreNodeInfo& nd = coreNodes[act[k]];
+      char mac[18];
+      snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+               nd.mac[0], nd.mac[1], nd.mac[2], nd.mac[3], nd.mac[4], nd.mac[5]);
+      biscuitCompatSnapshotRecord(sid, k, mac, (int)nd.recordsRx, -50, 1 /*C5/biscuit*/);
+    }
+    biscuitCompatSnapshotComplete(sid);
+  }
 
   // 1. Process pending CORE_REQUEST queue (new node registrations)
   while (coreReqHead != coreReqTail) {
     uint8_t i = coreReqHead;
     coreReqHead = (coreReqHead + 1) % CORE_REQ_QUEUE;
-    coreFindOrAddNode(coreReqBuf[i].mac, coreReqBuf[i].isBiscuit);
+    coreFindOrAddNode(coreReqBuf[i].mac, coreReqBuf[i].isBiscuit, coreReqBuf[i].band24);
     coreReassignChannels();
   }
 

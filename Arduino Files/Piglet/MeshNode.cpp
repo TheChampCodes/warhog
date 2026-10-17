@@ -98,6 +98,10 @@ uint8_t  jcmkAssignVer   = 0;
 uint32_t jcmkNetworksFound = 0;
 uint32_t jcmkSentCount   = 0;
 uint32_t jcmkSendFailCount = 0;
+// Mesh size reported by the Core in its heartbeat (total active nodes it sees).
+// A node only ever talks to the Core, never to peers, so this is its ONLY view
+// of the whole mesh — used to render the true herd count on the node's screen.
+uint8_t  jcmkMeshHerd    = 0;
 
 static uint32_t jcmkHbCounter   = 0;
 static uint32_t jcmkLastHbMs    = 0;
@@ -437,6 +441,17 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
       // (for Piglet pairings) the shared timing anchor for slot scheduling.
       jcmkCoreLastSeenMs = millis();
       if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
+      // Piglet extension: the Core stamps the mesh size (total active nodes)
+      // behind the marker. This is a node's only view of the whole mesh, so
+      // read it to render the true herd count on screen.
+      {
+        const jcmk_text_msg_t* hb = (const jcmk_text_msg_t*)data;
+        if (len >= (int)sizeof(jcmk_text_msg_t)
+            && hb->len >= PIGLET_MARKER_LEN + 1
+            && memcmp(hb->text, PIGLET_MARKER, PIGLET_MARKER_LEN) == 0) {
+          jcmkMeshHerd = (uint8_t)hb->text[PIGLET_MARKER_LEN];
+        }
+      }
     } else if (type == JCMK_MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
       jcmkCoreLastSeenMs = millis();
       if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
@@ -596,7 +611,12 @@ static void coreSendHeartbeatToAll() {
   memcpy(msg.magic, JCMK_MAGIC, 4);
   msg.type    = JCMK_MSG_HEARTBEAT;
   msg.counter = ++coreHbCounter;
-  msg.len     = 0;
+  // Piglet extension: carry the authoritative mesh size (total active nodes)
+  // so every node can display the real herd count. The marker keeps this
+  // invisible to stock JCMK/Biscuit nodes, which ignore heartbeat text.
+  memcpy(msg.text, PIGLET_MARKER, PIGLET_MARKER_LEN);
+  msg.text[PIGLET_MARKER_LEN] = (char)coreNodeCount;
+  msg.len     = PIGLET_MARKER_LEN + 1;
   esp_now_send(JCMK_BCAST, (uint8_t*)&msg, sizeof(msg));
 }
 
@@ -765,6 +785,7 @@ void enterNodeMode() {
   Serial.println("[MESH] Entering node mode");
   meshNodeActive        = false;
   jcmkHaveCore          = false;
+  jcmkMeshHerd          = 0;
   jcmkCoreFoundPending  = false;
   jcmkCoreIsPigletPending = false;
   jcmkCoreIsPiglet      = false;
@@ -1008,6 +1029,7 @@ void nodeModeTick() {
     jcmkHaveCore     = false;
     jcmkCoreIsPiglet = false;
     jcmkAssignVer    = 0;
+    jcmkMeshHerd     = 0;
     jcmkStartIdx     = 0;
     jcmkEndIdx       = JCMK_NUM_CHANNELS - 1;
     jcmkSlotIndex    = 0;

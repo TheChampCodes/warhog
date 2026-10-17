@@ -151,8 +151,9 @@ static void pollButton() {
           (millis() - pressStartMs >= LONG_PRESS_MS)) {
         longPressTriggered = true;
         clickCount = 0;  // cancel any pending click
-        if (currentPage == 5) {
-          // Mesh page: toggle Core / Node instead of sleeping
+        if (currentPage == 5 || pigWorldActive()) {
+          // Mesh / PigWorld scene page: long-press toggles Core <-> Node
+          // (instead of sleeping). Keep showing the scene across the switch.
           if (meshCoreActive) {
             exitCoreMode();
             enterNodeMode();
@@ -160,6 +161,8 @@ static void pollButton() {
             exitNodeMode();
             enterCoreMode();
           }
+          // viewOn / currentPage are untouched by the mode swap, so the
+          // PigWorld scene keeps rendering across the Core<->Node switch.
         } else {
           enterDeepSleep();  // never returns
         }
@@ -551,6 +554,7 @@ void setup() {
       Serial.println("[BOOT] meshModeOnBoot=Node — entering Mesh Node mode");
       currentPage = 5;  // mesh page on XIAO
       enterNodeMode();
+      pigWorldTakePress();  // default screen = the PigWorld scene on the mesh page
     } else if (mm == "core") {
       // Tear down STA cleanly before entering Core — the STA connection
       // (if any) was only needed for auto-upload and must not remain active
@@ -568,6 +572,7 @@ void setup() {
       Serial.println("[BOOT] meshModeOnBoot=Core — entering Mesh Core mode");
       currentPage = 5;
       enterCoreMode();
+      pigWorldTakePress();  // default screen = the PigWorld scene on the mesh page
     }
   }
 

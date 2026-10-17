@@ -68,7 +68,7 @@ static const uint8_t  JCMK_BCAST[6]       = {0xFF,0xFF,0xFF,0xFF,0xFF,0xFF};
 static const uint32_t REQ_INIT_MS         = 300;
 static const uint32_t REQ_MAX_MS          = 5000;
 static const uint32_t HB_MS              = 5000;
-static const uint32_t SCAN_DWELL_MS      = 80;   // ms per channel
+static const uint32_t SCAN_DWELL_MS      = 110;  // ms per channel (sparse 1/6/11 plan affords a longer dwell)
 static const uint32_t ADMIN_WIN_MS       = 500;  // ch-6 window after each scan cycle
 static const uint32_t CORE_TIMEOUT_MS    = 90000; // re-search if no ADMIN for 90 s
 #define JCMK_TEXT_MAX 200
@@ -132,6 +132,12 @@ static uint32_t lastHbMs      = 0;
 static uint32_t lastReqMs     = 0;
 static uint32_t reqInterval   = REQ_INIT_MS;
 static uint32_t lastAdminMs   = 0;  // tracks last ADMIN from Core for timeout
+
+// Explicit sparse channel plan from the Core (e.g. "channels=1,6,11").
+// When scanNumChans > 0 the scan loop walks exactly these CHANNELS[] indices;
+// when 0 it falls back to the contiguous effRange(startIdx..endIdx).
+static uint8_t  scanChans[NUM_CHANNELS] = {0};
+static uint8_t  scanNumChans  = 0;
 
 // Per-channel scan state
 static bool     scanActive    = false;
@@ -715,6 +721,10 @@ struct Friend {
 };
 static Friend  friends[MAX_FRIENDS];
 static uint8_t myMac[6];
+// Mesh size the Core reports in its heartbeat (total active nodes it sees). A
+// node only hears nearby peers directly via PIG1 broadcasts, so this is its
+// only view of the whole herd — used to pad the flock to the true mesh size.
+static volatile uint8_t coreHerd = 0;
 
 // Filled in by the ESP-Now callback, consumed by friendsTick() in the main loop
 struct FriendMsg { uint8_t mac[6]; int8_t rssi; uint32_t nets; uint16_t partyCd; uint8_t partyId; };
@@ -1012,6 +1022,25 @@ static void oledTick() {
     }
     if (k >= 0 && friends[i].hopPending) { friends[i].hopPending = false; if (herd[k].hop < 0) herd[k].hop = 0; }
   }
+  // Pad the flock to the Core-reported mesh size: phantom pigs (fslot < 0) stand
+  // in for herd members this node can't hear directly, so the on-screen count
+  // matches the whole mesh. Real heard-peers (above) always take slots first.
+  {
+    int want = coreHerd; if (want > MAX_FLOCK) want = MAX_FLOCK;
+    while (n - 1 < want) {                         // fill free slots with phantoms
+      FlockPig* slot = nullptr;
+      for (FlockPig& p : herd) if (!p.used) { slot = &p; break; }
+      if (!slot) break;
+      *slot = {true, false, (int8_t)-1, dir > 0 ? -40 : 80,
+               (int16_t)-1, (uint16_t)rnd(8), (uint8_t)0, (uint8_t)0};
+      n++;
+    }
+    if (n - 1 > want)                              // retire surplus phantoms only
+      for (FlockPig& p : herd) {
+        if (n - 1 <= want) break;
+        if (p.used && !p.leaving && p.fslot < 0) { p.leaving = true; p.label = 0; n--; }
+      }
+  }
   const FlockSize& sz = flockSize(n);
   const PigSet& P = *sz.own;
 
@@ -1021,9 +1050,17 @@ static void oledTick() {
     const uint8_t* macs[1 + MAX_FLOCK];
     uint8_t looks[1 + MAX_FLOCK];
     FlockPig* who[1 + MAX_FLOCK];
-    int m = 0;
+    static uint8_t phantomMac[MAX_FLOCK][6];       // stable fake MACs for phantom pigs
+    int m = 0, hi = 0;
     macs[m] = myMac; who[m++] = nullptr;
-    for (FlockPig& p : herd) if (p.used && !p.leaving) { macs[m] = friends[p.fslot].mac; who[m++] = &p; }
+    for (FlockPig& p : herd) {
+      if (p.used && !p.leaving) {
+        if (p.fslot >= 0) { macs[m] = friends[p.fslot].mac; }
+        else { phantomMac[hi][0] = 0x02; phantomMac[hi][5] = (uint8_t)(hi + 1); macs[m] = phantomMac[hi]; }
+        who[m++] = &p;
+      }
+      hi++;
+    }
     assignLooks(macs, looks, m);
     ownLook = looks[0];
     for (int k = 1; k < m; k++) who[k]->look = looks[k];
@@ -1211,7 +1248,7 @@ static void oledTick() {
       bool faceR = p.leaving ? target > p.x : dir > 0;
       int  fy = standY(p.x, FS) + ((i % 2) ? sz.back : 0) - fdy;
       drawPig(FS, ff, p.x, fy, !faceR && ff != PF_TURN, true, p.look);
-      if (p.label && n <= 4) {
+      if (p.label && n <= 4 && p.fslot >= 0) {     // phantoms (fslot < 0) have no name
         char name[5];
         friendName(friends[p.fslot].mac, name);
         oled.setFont(u8g2_font_4x6_tf);
@@ -1305,6 +1342,11 @@ static void sendRequest() {
   jcmk_text_msg_t msg = {};
   memcpy(msg.magic, JCMK_MAGIC, 4);
   msg.type = MSG_CORE_REQUEST;
+  // The C3 is 2.4 GHz-only: declare "B24" so the Core assigns it the productive
+  // 2.4 channels (1/6/11) instead of 5 GHz it can't tune.
+  memcpy(msg.text, "B24", 3);
+  msg.text[3] = '\0';
+  msg.len = 3;
   esp_now_send(JCMK_BCAST, (uint8_t*)&msg, sizeof(msg));
 }
 
@@ -1373,6 +1415,7 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
       assignVer = adm->assignment_version;
       startIdx  = adm->start_channel_idx;
       endIdx    = adm->end_channel_idx;
+      scanNumChans = 0;  // binary admin is a contiguous range; drop any sparse plan
     }
     lastAdminMs = millis();
 
@@ -1388,12 +1431,16 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
     const char* chStart = strstr(buf, "channels=");
     if (chStart) {
       chStart += 9;  // skip "channels="
-      uint8_t first = 0xFF, last = 0xFF;
+      // Parse the full list into an explicit sparse plan so "channels=1,6,11"
+      // scans exactly 1/6/11 instead of the whole 1..11 range. The C3 is
+      // 2.4 GHz-only, so any 5 GHz entry the Core sends is dropped defensively.
+      uint8_t n = 0, first = 0xFF, last = 0xFF;
       const char* p = chStart;
-      while (*p && *p != ';') {
+      while (*p && *p != ';' && n < NUM_CHANNELS) {
         int ch = atoi(p);
-        for (uint8_t i = 0; i < NUM_CHANNELS; i++) {
+        for (uint8_t i = 0; i <= LAST_24G_IDX; i++) {
           if (CHANNELS[i] == (uint8_t)ch) {
+            scanChans[n++] = i;
             if (first == 0xFF) first = i;
             last = i;
             break;
@@ -1402,9 +1449,10 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
         while (*p && *p != ',' && *p != ';') p++;
         if (*p == ',') p++;
       }
-      if (first != 0xFF) {
-        startIdx  = first;
-        endIdx    = last;
+      if (n > 0) {
+        scanNumChans = n;
+        startIdx = first;           // kept for effRange fallback + display
+        endIdx   = last;
         assignVer = (assignVer == 255) ? 1 : assignVer + 1;  // mark as assigned
       }
     }
@@ -1414,6 +1462,12 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
     if (haveCore && memcmp(info->src_addr, coreMac, 6) == 0) {
       // Core is still alive — reset timeout. Other nodes' heartbeats must not count.
       lastAdminMs = millis();
+      // The Core stamps the mesh size (total active nodes) behind the PIGLET1
+      // marker in its heartbeat. Read it so the flock can show the real herd.
+      const jcmk_text_msg_t* hb = (const jcmk_text_msg_t*)data;
+      if (len >= (int)sizeof(jcmk_text_msg_t) && hb->len >= 8 &&
+          memcmp(hb->text, "PIGLET1", 7) == 0)
+        coreHerd = (uint8_t)hb->text[7];
     } else if (len >= (int)offsetof(jcmk_text_msg_t, text) + 11 &&
                memcmp(((const jcmk_text_msg_t*)data)->text, "PIG1", 4) == 0 && !friendPending) {
       // Another Piglet C3 node: hand it to friendsTick() in the main loop
@@ -1433,6 +1487,7 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
 // ================================================================
 static void resetToSearching() {
   haveCore     = false;
+  coreHerd     = 0;
   assignVer    = 0;
   startIdx     = 0;
   endIdx       = NUM_CHANNELS - 1;
@@ -1472,7 +1527,9 @@ static void bleDrain() {
 static void scanTick() {
   uint8_t s, e;
   effRange(s, e);
-  uint8_t numCh = e - s + 1;
+  // Prefer the Core's explicit sparse plan (e.g. 1/6/11) when it sent one;
+  // otherwise walk the contiguous effRange.
+  uint8_t numCh = (scanNumChans > 0) ? scanNumChans : (uint8_t)(e - s + 1);
 
   // Admin window: radio is on ch 6. A BLE scan runs alongside it; the window
   // stays open until the BLE scan has finished and its results are sent.
@@ -1499,7 +1556,8 @@ static void scanTick() {
       return;
     }
 
-    uint8_t channel = CHANNELS[s + scanChOffset];
+    uint8_t idx = (scanNumChans > 0) ? scanChans[scanChOffset] : (uint8_t)(s + scanChOffset);
+    uint8_t channel = CHANNELS[idx];
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
                                    /*passive*/false, SCAN_DWELL_MS, channel);
     if (rc == WIFI_SCAN_RUNNING || rc == 0) {

@@ -1,6 +1,7 @@
 #include "BLEBridge.h"
 #include "Globals.h"      // cfg, gps, gpsHasFix, networksFound2G/5G, FIRMWARE_VERSION
 #include "MeshNode.h"     // meshCoreActive, coreRecordsRx, coreNodeCount, coreNodes[], JCMK_CHANNELS
+#include "BiscuitCompat.h"// present as a Biscuit Pro to the Biscuit Manager app (rides this server)
 
 #include <NimBLEDevice.h>
 
@@ -121,7 +122,9 @@ void bleBridgeBegin() {
   NimBLEDevice::setPower(9);                   // +9 dBm — max TX power (v2.x takes dBm int)
 
   bleServer = NimBLEDevice::createServer();
-  bleServer->setCallbacks(&serverCb);
+  // false => don't let deinit(true) delete this static callback (it would
+  // free() a non-heap pointer and assert on BLE teardown / mesh exit).
+  bleServer->setCallbacks(&serverCb, false);
 
   NimBLEService* svc = bleServer->createService(SVC_UUID);
   chStatus  = svc->createCharacteristic(CH_STATUS,
@@ -139,9 +142,24 @@ void bleBridgeBegin() {
 
   svc->start();
 
+  // Add the Biscuit Pro service + Device Information onto this same server so
+  // the Biscuit Manager app sees a Pro named "<this device>". Must be before
+  // advertising. Harmless to the PigletMesh app (it ignores this service).
+  biscuitCompatAttach(bleServer);
+
+  // Advertise BOTH services. Two 128-bit UUIDs won't fit one 31-byte packet,
+  // so the Biscuit UUID goes in the primary advertisement (its scan filter
+  // requires it there/merged) and the mesh UUID + name go in the scan
+  // response. The Biscuit app also keys its device label off the GAP name,
+  // so this still shows up as "Piglet-Core ...".
   NimBLEAdvertising* adv = NimBLEDevice::getAdvertising();
-  adv->addServiceUUID(SVC_UUID);
+  adv->addServiceUUID(BISCUIT_SERVICE_UUID);
+
+  NimBLEAdvertisementData scanResp;
+  scanResp.setName(std::string(name.c_str()));
+  scanResp.addServiceUUID(SVC_UUID);
   adv->enableScanResponse(true);              // v2.x: was setScanResponse(true) in v1.4.x
+  adv->setScanResponseData(scanResp);
   NimBLEDevice::startAdvertising();
 
   recHead = recTail = 0;
@@ -156,6 +174,7 @@ void bleBridgeBegin() {
 void bleBridgeStop() {
   if (!bridgeUp) return;
   bridgeUp = false;
+  biscuitCompatDetach();          // drop Biscuit refs before we free the controller
   NimBLEDevice::stopAdvertising();
   // Full deinit frees the BT controller RAM for the WiFi/ESP-Now path.
   NimBLEDevice::deinit(true);
@@ -175,6 +194,9 @@ void bleBridgePushRecord(const char* bssid, const char* ssid, const char* auth,
                          double lat, double lon, double alt, double acc,
                          const char* isoTime) {
   if (!bridgeUp) return;
+
+  // Mirror each AP to the Biscuit Manager app so it plots in real time on the map.
+  biscuitCompatPushAp(bssid, ssid, ch, rssi, auth);
 
   uint8_t next = (recTail + 1) % REC_RING;
   if (next == recHead) return;   // ring full — drop (SD CSV still has it)
@@ -261,6 +283,19 @@ static void buildStatusJson(String& out) {
 // ================================================================
 void bleBridgeTick() {
   if (!bridgeUp) return;
+
+  // 0. Service any Biscuit Manager commands + stream telemetry; push GPS ~1 Hz
+  //    so the app can pin the mirrored APs to our location.
+  biscuitCompatTick();
+  {
+    static uint32_t biscuitGpsMs = 0;
+    uint32_t nowg = millis();
+    if (gpsHasFix && nowg - biscuitGpsMs >= 1000) {
+      biscuitGpsMs = nowg;
+      biscuitCompatPushGps(gps.location.lat(), gps.location.lng(),
+                           gps.altitude.meters(), gps.hdop.hdop());
+    }
+  }
 
   // 1. Apply pending control commands (safe: we're in the main loop).
   if (pendingClearStats) {

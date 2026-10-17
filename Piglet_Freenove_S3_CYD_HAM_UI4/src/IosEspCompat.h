@@ -1,0 +1,44 @@
+#pragma once
+#include <Arduino.h>
+#include <NimBLEDevice.h>
+
+// ================================================================
+//  Wardrive Go / WarBLE Go  (RocketGod "iosESP") BLE bridge personality
+// ================================================================
+// Makes the Piglet look like a RocketGod "iosESP" wardrive bridge so the
+// iPhone Wardrive Go / WarBLE Go app pairs with it and plots the APs the
+// Piglet (and its mesh) hears, live on the map.
+//
+// Protocol: iosESP v1.5 (PROTOCOL.md in the wardrive-bridge package).
+//   GATT service  47686F73-7445-5350-4272-696467655376  (advertised)
+//     RX   0147686F-7374-4553-5042-726964675852  write / write-NR  (phone -> board cmds)
+//     TX   0247686F-7374-4553-5042-726964675854  notify            (board -> phone)
+//     CTRL 0347686F-7374-4553-5042-72694C525443  write / write-NR  (also accepts cmds)
+//     OTA  0447686F-7374-4553-5042-72694F544144  write-NR          (firmware image; stubbed)
+//   Name in scan response: "iosESP-XXXX" (last two bytes of the BLE address).
+//   Input: unframed ASCII commands are accepted (we also unwrap the 12-byte
+//          GB frame if present). Output: text WD: lines wrapped in DATA frames.
+//
+// This mirrors the BiscuitCompat module so MeshNode can branch between the two
+// personalities on a single settings toggle.
+
+// Create the iosESP service + characteristics on an existing server.
+void iosEspCompatAttach(NimBLEServer* server);
+// Stand up BLE on our own (Core-mode standalone), advertising as iosESP-XXXX.
+void iosEspCompatBeginStandalone(const char* fallbackName = nullptr);
+// Tear BLE back down (frees the controller for ESP-NOW / WiFi churn).
+void iosEspCompatStopStandalone();
+bool iosEspCompatActive();
+// Detach without touching NimBLE (caller owns teardown; for the bridge tree).
+void iosEspCompatDetach();
+
+// Main-loop service: drains inbound commands, streams queued WD: lines,
+// emits the periodic WD:STATUS heartbeat.
+void iosEspCompatTick();
+
+// Forward one scanned AP. `auth` is the WiGLE/JCMK capabilities string
+// (e.g. "[WPA2-PSK-CCMP][ESS]"); it is mapped to a WD auth token.
+void iosEspCompatPushAp(const char* bssid, const char* ssid,
+                        int channel, int rssi, const char* auth);
+// Forward a GPS fix -> WD:GPS. `sats` = satellites in use (0 if unknown).
+void iosEspCompatPushGps(double lat, double lon, double altMeters, int sats);

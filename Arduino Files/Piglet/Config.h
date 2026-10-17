@@ -33,11 +33,13 @@ struct Config {
   // Leave empty for default ("Piglet-Wardriver" / "WiGLE_....csv").
   String deviceName;
 
-  // Auto-start mesh mode after boot uploads: core, node, or none (default).
+  // Auto-start mesh mode after boot uploads: core, node (default), or none.
   // core — become the mesh coordinator (receives wardriving records from nodes).
-  // node — become a scanning node that forwards records to the Core.
+  // node — become a scanning node that forwards records to the Core (default:
+  //        the device boots straight into the PigWorld scene on the mesh page;
+  //        long-press toggles Core/Node).
   // none — normal solo wardriving mode.
-  String meshModeOnBoot = "none";
+  String meshModeOnBoot = "node";
 
   // Rotate the OLED display 180° (true = upside-down mount, false = normal).
   // Requires reboot to take effect.

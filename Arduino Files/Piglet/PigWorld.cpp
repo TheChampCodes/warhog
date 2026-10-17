@@ -681,7 +681,11 @@ static void worldFrame() {
   }
 
   // ---- Core: keep the herd in step with the connected nodes ----
-  int n = 1;
+  // Node mode has no local herd[] animation (that's Core-only), so seed the pig
+  // count from the Core-reported mesh size. jcmkMeshHerd excludes self, so the
+  // HUD's "n-1 other pigs" matches exactly what the Core itself displays. The
+  // core branch below recomputes n from its live herd.
+  int n = (!core && node) ? (1 + (int)jcmkMeshHerd) : 1;
   if (core) {
     for (const FlockPig& p : herd) if (p.used && !p.leaving) n++;
     for (int i = 0; i < CORE_MAX_NODES; i++) {
