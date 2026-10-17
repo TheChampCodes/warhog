@@ -1,0 +1,13 @@
+{
+  "name": "Piglet — PigletNode C3 (0.42\" OLED)",
+  "version": "__VERSION__",
+  "funding_url": "https://github.com/olosnoks/piglet",
+  "builds": [
+    {
+      "chipFamily": "ESP32-C3",
+      "parts": [
+        { "path": "../firmware/esp32c3_oled.bin", "offset": 0 }
+      ]
+    }
+  ]
+}

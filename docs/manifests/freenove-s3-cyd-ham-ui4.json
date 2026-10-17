@@ -1,0 +1,13 @@
+{
+  "name": "Piglet — Freenove S3 CYD (HAM UI4)",
+  "version": "__VERSION__",
+  "funding_url": "https://github.com/olosnoks/piglet",
+  "builds": [
+    {
+      "chipFamily": "ESP32-S3",
+      "parts": [
+        { "path": "../firmware/freenove-s3-cyd-ham-ui4.bin", "offset": 0 }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "Piglet — XIAO ESP32-C5",
+  "version": "__VERSION__",
+  "funding_url": "https://github.com/olosnoks/piglet",
+  "builds": [
+    {
+      "chipFamily": "ESP32-C5",
+      "parts": [
+        { "path": "../firmware/xiao_c5.bin", "offset": 0 }
+      ]
+    }
+  ]
+}

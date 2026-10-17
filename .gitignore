@@ -5,3 +5,6 @@
 AGENTS.md
 tools/
 .pio/
+
+# CI-built firmware images (produced by the Pages workflow, never committed)
+docs/firmware/

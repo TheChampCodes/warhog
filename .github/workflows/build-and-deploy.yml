@@ -1,0 +1,121 @@
+name: Build firmware & deploy flasher
+
+# Builds every PlatformIO board env, merges each into a single flashable image,
+# and publishes the ESP Web Tools flasher (docs/) to GitHub Pages.
+#
+# Runs on a version tag (v*) and on manual dispatch. Set Pages source to
+# "GitHub Actions" once (Settings -> Pages -> Build and deployment -> Source).
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; let a newer run supersede an in-flight one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.env }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { env: xiao_c5,                  dir: "Arduino Files/Piglet",         chip: esp32c5 }
+          - { env: freenove-s3-cyd-ham-ui4,  dir: "Piglet_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
+          - { env: guition-jc8048w550,       dir: "Piglet_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
+          - { env: esp32c3_oled,             dir: "c3_node",                       chip: esp32c3 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ matrix.env }}-${{ hashFiles('**/platformio.ini') }}
+          restore-keys: pio-${{ matrix.env }}-
+
+      - name: Install PlatformIO + esptool
+        run: |
+          python -m pip install --upgrade pip
+          pip install platformio "esptool==4.8.1"
+
+      - name: Build
+        run: pio run -d "${{ matrix.dir }}" -e "${{ matrix.env }}"
+
+      - name: Merge into a single flashable image
+        run: |
+          set -euo pipefail
+          BUILD="${{ matrix.dir }}/.pio/build/${{ matrix.env }}"
+          BOOT_APP0="$(find "$HOME/.platformio/packages" -name boot_app0.bin | head -n1)"
+          if [ -z "$BOOT_APP0" ]; then echo "boot_app0.bin not found"; exit 1; fi
+          mkdir -p merged
+          # All boards here are ESP32-S3/C3/C5 (unified bootloader at 0x0).
+          python -m esptool --chip "${{ matrix.chip }}" merge_bin \
+            -o "merged/${{ matrix.env }}.bin" \
+            --flash_mode keep --flash_freq keep --flash_size keep \
+            0x0     "$BUILD/bootloader.bin" \
+            0x8000  "$BUILD/partitions.bin" \
+            0xe000  "$BOOT_APP0" \
+            0x10000 "$BUILD/firmware.bin"
+          ls -l "merged/${{ matrix.env }}.bin"
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fw-${{ matrix.env }}
+          path: merged/${{ matrix.env }}.bin
+          if-no-files-found: error
+
+  deploy:
+    name: Assemble site & deploy Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect built firmware
+        uses: actions/download-artifact@v4
+        with:
+          pattern: fw-*
+          path: _artifacts
+
+      - name: Assemble docs/firmware
+        run: |
+          set -euo pipefail
+          mkdir -p docs/firmware
+          # Each artifact dir holds one <env>.bin — flatten into docs/firmware/.
+          find _artifacts -name '*.bin' -exec cp -v {} docs/firmware/ \;
+          VERSION="${GITHUB_REF_NAME}+${GITHUB_SHA::7}"
+          echo "Stamping version: $VERSION"
+          # Substitute __VERSION__ in the page and every manifest.
+          find docs -name '*.json' -o -name 'index.html' | while read -r f; do
+            sed -i "s|__VERSION__|${VERSION}|g" "$f"
+          done
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
