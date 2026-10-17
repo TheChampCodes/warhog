@@ -1,10 +1,10 @@
 name: Build firmware & deploy flasher
 
 # Builds every PlatformIO board env, merges each into a single flashable image,
-# and publishes the ESP Web Tools flasher (docs/) to GitHub Pages.
+# and publishes the ESP Web Tools flasher (web-flasher/) to GitHub Pages.
 #
-# Runs on a version tag (v*) and on manual dispatch. Set Pages source to
-# "GitHub Actions" once (Settings -> Pages -> Build and deployment -> Source).
+# Runs on a version tag (v*) and on manual dispatch. The first run turns Pages
+# on automatically (configure-pages enablement) — no Settings toggle needed.
 
 on:
   push:
@@ -97,24 +97,28 @@ jobs:
           pattern: fw-*
           path: _artifacts
 
-      - name: Assemble docs/firmware
+      - name: Assemble web-flasher/firmware
         run: |
           set -euo pipefail
-          mkdir -p docs/firmware
-          # Each artifact dir holds one <env>.bin — flatten into docs/firmware/.
-          find _artifacts -name '*.bin' -exec cp -v {} docs/firmware/ \;
+          mkdir -p web-flasher/firmware
+          # Each artifact dir holds one <env>.bin — flatten into firmware/.
+          find _artifacts -name '*.bin' -exec cp -v {} web-flasher/firmware/ \;
           VERSION="${GITHUB_REF_NAME}+${GITHUB_SHA::7}"
           echo "Stamping version: $VERSION"
           # Substitute __VERSION__ in the page and every manifest.
-          find docs -name '*.json' -o -name 'index.html' | while read -r f; do
+          find web-flasher -name '*.json' -o -name 'index.html' | while read -r f; do
             sed -i "s|__VERSION__|${VERSION}|g" "$f"
           done
 
       - uses: actions/configure-pages@v5
+        with:
+          # Turn Pages on (source = GitHub Actions) on the first run, so no
+          # manual toggle in Settings is needed.
+          enablement: true
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: web-flasher
 
       - name: Deploy
         id: deployment

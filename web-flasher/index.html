@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Piglet Wardriver — Web Flasher</title>
+<meta name="description" content="Flash Piglet wardriving firmware to your ESP32 board straight from the browser.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f437;</text></svg>">
+<script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#0a0e13; --card:#111820; --text:#e2eaf4; --muted:#8899ab;
+    --border:#1e2a3a; --input:#0c1219; --inputBorder:#243044;
+    --accent:#2dd4bf; --accentDim:rgba(45,212,191,.15);
+    --btn:#182030; --btnHover:#1f2d42; --primary:#2dd4bf; --primaryText:#0a0e13;
+    --danger:#fb7185; --dangerDim:rgba(251,113,133,.12);
+    --warn:#fbbf24; --warnDim:rgba(251,191,36,.12);
+    --blue:#60a5fa; --ok:#2dd4bf; --okDim:rgba(45,212,191,.12);
+  }
+  html{color-scheme:dark}
+  body{
+    font-family:system-ui,-apple-system,sans-serif;
+    margin:0 auto;padding:16px;max-width:900px;
+    background:var(--bg);color:var(--text);line-height:1.5;
+  }
+
+  .header{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+  .header .logo{font-size:28px;line-height:1}
+  .header h1{font-size:20px;font-weight:700;margin:0}
+  .header .sub{font-size:12px;color:var(--muted);margin:0}
+
+  .card{border:1px solid var(--border);border-radius:12px;padding:14px;margin:12px 0;background:var(--card)}
+  .card h3{margin:0 0 10px 0;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+  code{background:var(--input);padding:2px 6px;border-radius:5px;border:1px solid var(--border);font-size:12px}
+  .muted{color:var(--muted)}
+
+  /* requirement pills (mirrors the firmware web UI status row) */
+  .statusGrid{display:flex;flex-wrap:wrap;gap:6px}
+  .pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:500;background:var(--input)}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);flex-shrink:0}
+  .pill.warn{border-color:rgba(251,191,36,.3);background:var(--warnDim)} .pill.warn .dot{background:var(--warn)}
+
+  /* board grid */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px}
+  .board{border:1px solid var(--border);border-radius:12px;padding:14px;background:var(--card);display:flex;flex-direction:column;gap:10px}
+  .board h2{margin:0;font-size:15px;font-weight:700}
+  .chips{display:flex;gap:5px;flex-wrap:wrap}
+  .chip{font-size:10px;font-weight:600;letter-spacing:.3px;padding:3px 8px;border-radius:999px;background:var(--input);border:1px solid var(--border);color:var(--muted);text-transform:uppercase}
+  .chip.a{color:var(--accent);border-color:rgba(45,212,191,.35)}
+  .desc{color:var(--muted);font-size:12.5px;margin:0;flex:1}
+
+  button.flash{
+    cursor:pointer;width:100%;padding:9px 14px;border-radius:7px;
+    border:1px solid var(--primary);background:var(--primary);color:var(--primaryText);
+    font:600 13.5px system-ui,sans-serif;transition:filter .1s;
+  }
+  button.flash:hover{filter:brightness(1.08)} button.flash:active{transform:translateY(1px)}
+  esp-web-install-button{--esp-tools-button-color:transparent}
+  .unsupported{color:var(--danger);font-size:12px}
+
+  .alt{display:flex;gap:12px;flex-wrap:wrap;font-size:12px}
+  details{border-top:1px solid var(--border);padding-top:10px}
+  summary{cursor:pointer;color:var(--muted);font-size:12px;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸ ";color:var(--accent)}
+  details[open] summary::before{content:"▾ "}
+  pre{background:var(--input);border:1px solid var(--border);border-radius:7px;padding:11px;overflow:auto;font-size:12px;color:var(--text);margin:9px 0 0;font-family:ui-monospace,Menlo,Consolas,monospace}
+  pre .c{color:var(--muted)}
+
+  .srclist{list-style:none;padding:0;margin:0}
+  .srclist li{padding:8px 0;border-bottom:1px solid var(--border);font-size:13px;color:var(--muted)}
+  .srclist li:last-child{border-bottom:none}
+  .srclist b{color:var(--text)} .srclist code{color:var(--accent)}
+
+  footer{margin-top:20px;padding-top:12px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between}
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">&#x1f437;</div>
+    <div>
+      <h1>Piglet Wardriver</h1>
+      <p class="sub">Web Flasher &mdash; flash firmware over USB, no IDE</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Before you start</h3>
+    <div class="statusGrid">
+      <span class="pill"><span class="dot"></span>Chrome or Edge (desktop)</span>
+      <span class="pill"><span class="dot"></span>Data USB cable</span>
+      <span class="pill"><span class="dot"></span>Plugged in directly, no hub</span>
+      <span class="pill warn"><span class="dot"></span>No port? install CP210x / CH343 driver</span>
+    </div>
+    <p class="muted" style="font-size:12.5px;margin:10px 0 0">
+      Pick your board, hit <b style="color:var(--text)">Install</b>, and choose the serial port when prompted.
+      Images are built automatically from <a href="https://github.com/olosnoks/piglet">olosnoks/piglet</a>.
+    </p>
+  </div>
+
+  <div class="card">
+    <h3>Boards</h3>
+    <div class="grid">
+
+      <!-- Freenove S3 CYD -->
+      <div class="board">
+        <h2>Freenove S3 CYD</h2>
+        <div class="chips"><span class="chip a">ESP32-S3</span><span class="chip">16 MB</span><span class="chip">HAM UI4</span></div>
+        <p class="desc">2.4 GHz scanning, GPS, SD logging, 2.8&Prime; touch display. The main CYD build.</p>
+        <esp-web-install-button manifest="manifests/freenove-s3-cyd-ham-ui4.json">
+          <button class="flash" slot="activate">&#9654; Install</button>
+          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
+        </esp-web-install-button>
+        <div class="alt">
+          <a href="firmware/freenove-s3-cyd-ham-ui4.bin" download>Download .bin</a>
+          <a href="manifests/freenove-s3-cyd-ham-ui4.json">manifest</a>
+        </div>
+        <details><summary>Flash manually</summary>
+<pre>esptool --chip esp32s3 write-flash 0x0 \
+  freenove-s3-cyd-ham-ui4.bin</pre>
+        </details>
+      </div>
+
+      <!-- Guition W550 -->
+      <div class="board">
+        <h2>Guition JC8048W550</h2>
+        <div class="chips"><span class="chip a">ESP32-S3</span><span class="chip">16 MB</span><span class="chip">5&Prime; 800&times;480</span></div>
+        <p class="desc">Same core as the Freenove build on a 5&Prime; RGB IPS panel with GT911 touch.</p>
+        <esp-web-install-button manifest="manifests/guition-jc8048w550.json">
+          <button class="flash" slot="activate">&#9654; Install</button>
+          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
+        </esp-web-install-button>
+        <div class="alt">
+          <a href="firmware/guition-jc8048w550.bin" download>Download .bin</a>
+          <a href="manifests/guition-jc8048w550.json">manifest</a>
+        </div>
+        <details><summary>Flash manually</summary>
+<pre>esptool --chip esp32s3 write-flash 0x0 \
+  guition-jc8048w550.bin</pre>
+        </details>
+      </div>
+
+      <!-- PigletNode C3 -->
+      <div class="board">
+        <h2>PigletNode C3</h2>
+        <div class="chips"><span class="chip a">ESP32-C3</span><span class="chip">4 MB</span><span class="chip">0.42&Prime; OLED</span></div>
+        <p class="desc">Minimal mesh node &mdash; boots straight into ESP-Now node mode. No GPS/SD needed.</p>
+        <esp-web-install-button manifest="manifests/esp32c3_oled.json">
+          <button class="flash" slot="activate">&#9654; Install</button>
+          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
+        </esp-web-install-button>
+        <div class="alt">
+          <a href="firmware/esp32c3_oled.bin" download>Download .bin</a>
+          <a href="manifests/esp32c3_oled.json">manifest</a>
+        </div>
+        <details><summary>Flash manually</summary>
+<pre>esptool --chip esp32c3 write-flash 0x0 \
+  esp32c3_oled.bin</pre>
+        </details>
+      </div>
+
+      <!-- XIAO C5 -->
+      <div class="board">
+        <h2>XIAO ESP32-C5</h2>
+        <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">dual-band</span></div>
+        <p class="desc">5 GHz-capable node board. Browser flashing is unreliable on the C5 &mdash; see note.</p>
+        <esp-web-install-button manifest="manifests/xiao_c5.json">
+          <button class="flash" slot="activate">&#9654; Install (may fail)</button>
+          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
+        </esp-web-install-button>
+        <div class="alt">
+          <a href="firmware/xiao_c5.bin" download>Download .bin</a>
+          <a href="manifests/xiao_c5.json">manifest</a>
+        </div>
+        <details open><summary>C5 note &mdash; use --no-stub if the browser fails</summary>
+<pre><span class="c"># The C5 USB-Serial/JTAG drops</span>
+<span class="c"># when the stub loads, and the</span>
+<span class="c"># browser can't skip it. Flash</span>
+<span class="c"># from a terminal instead:</span>
+esptool --chip esp32c5 \
+  --no-stub write-flash \
+  0x0 xiao_c5.bin</pre>
+        </details>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Other boards — build from source</h3>
+    <p class="muted" style="font-size:12.5px;margin:0 0 10px">
+      These ship as Arduino-IDE sketches with no PlatformIO env, so CI doesn't build them yet.
+      Open the sketch in the Arduino IDE (or add a <code>platformio.ini</code>) and flash from there.
+    </p>
+    <ul class="srclist">
+      <li><b>T-Dongle C5</b> &mdash; <code>TDongleC5_Piglet/</code> · ESP32-C5 dongle with built-in display.</li>
+      <li><b>PigletNode</b> &mdash; <code>PigletNode/</code> · standalone mesh node sketch.</li>
+      <li><b>Waveshare Mini</b> &mdash; <code>waveshareDisplayMiniPiglet/</code> · Waveshare round/mini display build.</li>
+    </ul>
+  </div>
+
+  <footer>
+    <span><a href="https://github.com/olosnoks/piglet">github.com/olosnoks/piglet</a> · GPL</span>
+    <span>build __VERSION__</span>
+  </footer>
+
+</body>
+</html>
