@@ -1,0 +1,13 @@
+{
+  "name": "Piglet — Waveshare C6 LCD 1.47\"",
+  "version": "__VERSION__",
+  "funding_url": "https://github.com/olosnoks/piglet",
+  "builds": [
+    {
+      "chipFamily": "ESP32-C6",
+      "parts": [
+        { "path": "../firmware/waveshare_c6.bin", "offset": 0 }
+      ]
+    }
+  ]
+}
