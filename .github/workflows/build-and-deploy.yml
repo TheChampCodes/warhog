@@ -33,7 +33,6 @@ jobs:
           - { env: freenove-s3-cyd-ham-ui4,  dir: "Piglet_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
           - { env: guition-jc8048w550,       dir: "Piglet_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
           - { env: esp32c3_oled,             dir: "c3_node",                       chip: esp32c3 }
-          - { env: tdongle_c5,               dir: "TDongleC5_Piglet",              chip: esp32c5 }
           - { env: pigletnode_c5,            dir: "PigletNode",                    chip: esp32c5 }
           - { env: waveshare_c6,             dir: "waveshareDisplayMiniPiglet",    chip: esp32c6 }
     steps:

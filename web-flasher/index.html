@@ -183,28 +183,6 @@ esptool --chip esp32c5 \
         </details>
       </div>
 
-      <!-- T-Dongle C5 -->
-      <div class="board">
-        <h2>LilyGO T-Dongle C5</h2>
-        <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">0.96&Prime; TFT</span></div>
-        <p class="desc">Dongle form factor &mdash; ST7735 display, SD, GPS, APA102 LED. Dual-band.</p>
-        <esp-web-install-button manifest="manifests/tdongle_c5.json">
-          <button class="flash" slot="activate">&#9654; Install (may fail)</button>
-          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
-        </esp-web-install-button>
-        <div class="alt">
-          <a href="firmware/tdongle_c5.bin" download>Download .bin</a>
-          <a href="manifests/tdongle_c5.json">manifest</a>
-        </div>
-        <details open><summary>C5 note &mdash; use --no-stub if the browser fails</summary>
-<pre><span class="c"># C5 USB-Serial/JTAG drops on stub;</span>
-<span class="c"># flash from a terminal instead:</span>
-esptool --chip esp32c5 \
-  --no-stub write-flash \
-  0x0 tdongle_c5.bin</pre>
-        </details>
-      </div>
-
       <!-- PigletNode C5 -->
       <div class="board">
         <h2>PigletNode C5</h2>
