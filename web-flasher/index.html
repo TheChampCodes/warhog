@@ -56,23 +56,56 @@
   /* device screen demos */
   .screen{border:1px solid var(--border);border-radius:8px;background:#000;padding:5px;overflow:hidden}
   .screen canvas{border-radius:3px;display:block}
-  .tft{aspect-ratio:5/3;background:linear-gradient(#0a0e13,#0b1016);border-radius:4px;display:flex;flex-direction:column;font-size:9px;overflow:hidden}
-  .tft-hd{display:flex;justify-content:space-between;align-items:center;padding:4px 7px;border-bottom:1px solid #16202c;color:var(--accent);font-weight:700;letter-spacing:.3px}
-  .tft-sig{font-size:8px;letter-spacing:-1px}
-  .tft-body{flex:1;display:flex;align-items:center;gap:6px;padding:4px 8px}
-  .radar{position:relative;width:48px;height:48px;flex:none}
-  .radar b{position:absolute;inset:44%;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
-  .radar span{position:absolute;inset:0;border:1px solid var(--accent);border-radius:50%;opacity:0;animation:ping 2.4s linear infinite}
-  .radar span:nth-child(2){animation-delay:.8s} .radar span:nth-child(3){animation-delay:1.6s}
-  @keyframes ping{0%{transform:scale(.15);opacity:.9}80%{opacity:.08}100%{transform:scale(1);opacity:0}}
-  .tft-kv{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:3px 8px}
-  .tft-kv div{display:flex;flex-direction:column;line-height:1.2}
-  .tft-kv label{color:var(--muted);font-size:7px;letter-spacing:.5px}
-  .tft-kv em{color:var(--text);font-style:normal;font-weight:700;font-size:11px}
-  .tft-kv em._nets{color:var(--accent)}
-  .tft-nav{display:flex;border-top:1px solid #16202c}
-  .tft-nav u{flex:1;text-align:center;padding:3px 0;text-decoration:none;color:var(--muted);font-size:7px;font-weight:700;letter-spacing:.3px}
-  .tft-nav u.on{background:var(--accent);color:#0a0e13;border-radius:3px;margin:2px}
+  /* CYD / Guition — CORE main screen */
+  .cyd{background:#0a0d11;border-radius:4px;padding:6px 7px 7px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:7px;line-height:1.3;color:var(--text);display:flex;flex-direction:column;gap:5px}
+  .cyd-hd{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:4px;border-bottom:1px solid #1b3a36;padding-bottom:4px;position:relative}
+  .cyd-pig{font-size:12px;line-height:1}
+  .cyd-ttl{color:var(--accent);font-weight:700;font-size:8px;letter-spacing:.5px;display:flex;flex-direction:column;line-height:1.05}
+  .cyd-ttl b{font-weight:700;font-size:7px}
+  .cyd-bat{display:flex;align-items:center;gap:3px;color:var(--accent);font-size:7px;justify-self:end}
+  .cyd-bat i{width:11px;height:6px;border:1px solid var(--accent);border-radius:1px;background:linear-gradient(90deg,var(--accent) 70%,transparent 70%)}
+  .cyd-dots{grid-column:1/-1;display:flex;gap:7px;color:var(--muted);font-size:6.5px;align-items:center}
+  .cyd-dots u{width:4px;height:4px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:2px}
+  .cyd-dots u.y{background:var(--warn)}
+  .cyd-sec{color:var(--muted);font-size:6px;letter-spacing:.8px;margin-top:1px}
+  .cyd-seg{display:flex;gap:3px}
+  .cyd-seg s{flex:1;text-align:center;text-decoration:none;background:#141a20;border:1px solid #223;border-radius:3px;padding:3px 0;color:var(--muted);font-size:6.5px}
+  .cyd-seg s.on{background:var(--accent);color:#05281f;border-color:var(--accent);font-weight:700}
+  .cyd-stat{background:#0e141a;border:1px solid #1b2530;border-radius:3px;padding:4px 6px;color:var(--text);font-size:7px}
+  .cyd-stat em{color:var(--accent);font-style:normal;font-weight:700}
+  .cyd-cap{display:flex;gap:4px}
+  .cyd-cap s{flex:1;text-align:center;background:var(--accent);color:#05281f;border-radius:3px;padding:3px 0;font-size:6.5px;font-weight:700}
+  .cyd-cards,.cyd-cards2{display:grid;gap:4px}
+  .cyd-cards{grid-template-columns:1fr 1fr 1fr}
+  .cyd-cards2{grid-template-columns:1fr 1fr}
+  .cc{background:#0e141a;border:1px solid #1b2530;border-left-width:2px;border-radius:3px;padding:3px 5px;display:flex;flex-direction:column;gap:1px}
+  .cc label{color:var(--muted);font-size:5.5px;letter-spacing:.4px}
+  .cc b{font-size:11px;font-weight:700}
+  .cc.a{border-left-color:var(--accent)} .cc.a b{color:var(--accent)}
+  .cc.b{border-left-color:var(--blue)} .cc.b b{color:var(--blue)}
+  .cc.p{border-left-color:#c084fc} .cc.p b{color:#c084fc}
+  .cyd-nav{display:flex;gap:3px;margin-top:2px}
+  .cyd-nav u{flex:1;text-align:center;color:var(--muted);font-size:6.5px;font-weight:700;padding:3px 0}
+  .cyd-nav u.on{background:var(--accent);color:#05281f;border-radius:3px}
+  /* Waveshare ST7789 status (white on black, portrait) */
+  .wave{background:#000;border-radius:4px;padding:8px 9px;font-family:ui-monospace,Menlo,Consolas,monospace;color:#fff;font-size:9px;line-height:1.5;aspect-ratio:172/320;display:flex;flex-direction:column}
+  .wv-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
+  .wv-ttl{font-size:16px;font-weight:700;letter-spacing:.5px}
+  .wv-ic{display:flex;gap:6px;margin-top:3px}
+  .wv-ic b{width:11px;height:11px;display:inline-block}
+  .wv-ic .gps{border:1.5px solid #fff;border-radius:50%;position:relative}
+  .wv-ic .gps::after{content:"";position:absolute;inset:3px;background:#fff;border-radius:50%}
+  .wv-ic .sd{border:1.5px solid #fff;border-radius:50%}
+  .wv-ic .arr{width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-bottom:11px solid #ff2a2a}
+  .wv-l{font-size:10px}
+  .wv-l span{color:#fff}
+  .wv-l em{font-style:normal}
+  .wv-wig{margin-top:10px;font-size:9px;color:#fff}
+  .wv-wig span{color:#bbb}
+  .wv-big{margin-top:auto;font-size:15px;font-weight:700}
+  .wv-nav{display:flex;flex-direction:column;align-items:center;gap:3px;margin-top:8px}
+  .wv-tri{width:0;height:0;border-left:11px solid transparent;border-right:11px solid transparent;border-bottom:20px solid #ff2a2a}
+  .wv-nav em{font-style:normal;font-size:10px}
 
   button.flash{
     cursor:pointer;width:100%;padding:9px 14px;border-radius:7px;
@@ -127,7 +160,7 @@
       <div class="board">
         <h2>Freenove S3 CYD</h2>
         <div class="chips"><span class="chip a">ESP32-S3</span><span class="chip">16 MB</span><span class="chip">HAM UI4</span></div>
-        <div class="screen" data-screen="tft"></div>
+        <div class="screen" data-screen="cyd"></div>
         <p class="desc">2.4 GHz scanning, GPS, SD logging, 2.8&Prime; touch display. The main CYD build.</p>
         <esp-web-install-button manifest="manifests/freenove-s3-cyd-ham-ui4.json">
           <button class="flash" slot="activate">&#9654; Install</button>
@@ -147,7 +180,7 @@
       <div class="board">
         <h2>Guition JC8048W550</h2>
         <div class="chips"><span class="chip a">ESP32-S3</span><span class="chip">16 MB</span><span class="chip">5&Prime; 800&times;480</span></div>
-        <div class="screen" data-screen="tft"></div>
+        <div class="screen" data-screen="cyd"></div>
         <p class="desc">Same core as the Freenove build on a 5&Prime; RGB IPS panel with GT911 touch.</p>
         <esp-web-install-button manifest="manifests/guition-jc8048w550.json">
           <button class="flash" slot="activate">&#9654; Install</button>
@@ -167,7 +200,7 @@
       <div class="board">
         <h2>PigletNode C3</h2>
         <div class="chips"><span class="chip a">ESP32-C3</span><span class="chip">4 MB</span><span class="chip">0.42&Prime; OLED</span></div>
-        <div class="screen" data-screen="oledmono"></div>
+        <div class="screen" data-screen="c3"></div>
         <p class="desc">Minimal mesh node &mdash; boots straight into ESP-Now node mode. No GPS/SD needed.</p>
         <esp-web-install-button manifest="manifests/esp32c3_oled.json">
           <button class="flash" slot="activate">&#9654; Install</button>
@@ -187,7 +220,7 @@
       <div class="board">
         <h2>Official Piglet &mdash; XIAO C5</h2>
         <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">GPS</span><span class="chip">dual-band</span></div>
-        <div class="screen" data-screen="oled2"></div>
+        <div class="screen" data-screen="piglet"></div>
         <p class="desc">The official Piglet firmware &mdash; GPS, SD, WiGLE logging, mesh. Dual-band 5 GHz. Browser flashing is unreliable on the C5 &mdash; see note.</p>
         <esp-web-install-button manifest="manifests/xiao_c5.json">
           <button class="flash" slot="activate">&#9654; Install (may fail)</button>
@@ -234,7 +267,7 @@ esptool --chip esp32c5 \
       <div class="board">
         <h2>Waveshare C6 Mini</h2>
         <div class="chips"><span class="chip a">ESP32-C6</span><span class="chip">4 MB</span><span class="chip">1.47&Prime; LCD</span></div>
-        <div class="screen" data-screen="tft"></div>
+        <div class="screen" data-screen="wave"></div>
         <p class="desc">Waveshare ESP32-C6 1.47&Prime; LCD &mdash; ST7789 display, SD, GPS.</p>
         <esp-web-install-button manifest="manifests/waveshare_c6.json">
           <button class="flash" slot="activate">&#9654; Install</button>
