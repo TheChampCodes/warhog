@@ -53,6 +53,27 @@
   .chip.a{color:var(--accent);border-color:rgba(45,212,191,.35)}
   .desc{color:var(--muted);font-size:12.5px;margin:0;flex:1}
 
+  /* device screen demos */
+  .screen{border:1px solid var(--border);border-radius:8px;background:#000;padding:5px;overflow:hidden}
+  .screen canvas{border-radius:3px;display:block}
+  .tft{aspect-ratio:5/3;background:linear-gradient(#0a0e13,#0b1016);border-radius:4px;display:flex;flex-direction:column;font-size:9px;overflow:hidden}
+  .tft-hd{display:flex;justify-content:space-between;align-items:center;padding:4px 7px;border-bottom:1px solid #16202c;color:var(--accent);font-weight:700;letter-spacing:.3px}
+  .tft-sig{font-size:8px;letter-spacing:-1px}
+  .tft-body{flex:1;display:flex;align-items:center;gap:6px;padding:4px 8px}
+  .radar{position:relative;width:48px;height:48px;flex:none}
+  .radar b{position:absolute;inset:44%;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent)}
+  .radar span{position:absolute;inset:0;border:1px solid var(--accent);border-radius:50%;opacity:0;animation:ping 2.4s linear infinite}
+  .radar span:nth-child(2){animation-delay:.8s} .radar span:nth-child(3){animation-delay:1.6s}
+  @keyframes ping{0%{transform:scale(.15);opacity:.9}80%{opacity:.08}100%{transform:scale(1);opacity:0}}
+  .tft-kv{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:3px 8px}
+  .tft-kv div{display:flex;flex-direction:column;line-height:1.2}
+  .tft-kv label{color:var(--muted);font-size:7px;letter-spacing:.5px}
+  .tft-kv em{color:var(--text);font-style:normal;font-weight:700;font-size:11px}
+  .tft-kv em._nets{color:var(--accent)}
+  .tft-nav{display:flex;border-top:1px solid #16202c}
+  .tft-nav u{flex:1;text-align:center;padding:3px 0;text-decoration:none;color:var(--muted);font-size:7px;font-weight:700;letter-spacing:.3px}
+  .tft-nav u.on{background:var(--accent);color:#0a0e13;border-radius:3px;margin:2px}
+
   button.flash{
     cursor:pointer;width:100%;padding:9px 14px;border-radius:7px;
     border:1px solid var(--primary);background:var(--primary);color:var(--primaryText);
@@ -106,6 +127,7 @@
       <div class="board">
         <h2>Freenove S3 CYD</h2>
         <div class="chips"><span class="chip a">ESP32-S3</span><span class="chip">16 MB</span><span class="chip">HAM UI4</span></div>
+        <div class="screen" data-screen="tft"></div>
         <p class="desc">2.4 GHz scanning, GPS, SD logging, 2.8&Prime; touch display. The main CYD build.</p>
         <esp-web-install-button manifest="manifests/freenove-s3-cyd-ham-ui4.json">
           <button class="flash" slot="activate">&#9654; Install</button>
@@ -125,6 +147,7 @@
       <div class="board">
         <h2>Guition JC8048W550</h2>
         <div class="chips"><span class="chip a">ESP32-S3</span><span class="chip">16 MB</span><span class="chip">5&Prime; 800&times;480</span></div>
+        <div class="screen" data-screen="tft"></div>
         <p class="desc">Same core as the Freenove build on a 5&Prime; RGB IPS panel with GT911 touch.</p>
         <esp-web-install-button manifest="manifests/guition-jc8048w550.json">
           <button class="flash" slot="activate">&#9654; Install</button>
@@ -144,6 +167,7 @@
       <div class="board">
         <h2>PigletNode C3</h2>
         <div class="chips"><span class="chip a">ESP32-C3</span><span class="chip">4 MB</span><span class="chip">0.42&Prime; OLED</span></div>
+        <div class="screen" data-screen="oledmono"></div>
         <p class="desc">Minimal mesh node &mdash; boots straight into ESP-Now node mode. No GPS/SD needed.</p>
         <esp-web-install-button manifest="manifests/esp32c3_oled.json">
           <button class="flash" slot="activate">&#9654; Install</button>
@@ -163,6 +187,7 @@
       <div class="board">
         <h2>Official Piglet &mdash; XIAO C5</h2>
         <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">GPS</span><span class="chip">dual-band</span></div>
+        <div class="screen" data-screen="oled2"></div>
         <p class="desc">The official Piglet firmware &mdash; GPS, SD, WiGLE logging, mesh. Dual-band 5 GHz. Browser flashing is unreliable on the C5 &mdash; see note.</p>
         <esp-web-install-button manifest="manifests/xiao_c5.json">
           <button class="flash" slot="activate">&#9654; Install (may fail)</button>
@@ -209,6 +234,7 @@ esptool --chip esp32c5 \
       <div class="board">
         <h2>Waveshare C6 Mini</h2>
         <div class="chips"><span class="chip a">ESP32-C6</span><span class="chip">4 MB</span><span class="chip">1.47&Prime; LCD</span></div>
+        <div class="screen" data-screen="tft"></div>
         <p class="desc">Waveshare ESP32-C6 1.47&Prime; LCD &mdash; ST7789 display, SD, GPS.</p>
         <esp-web-install-button manifest="manifests/waveshare_c6.json">
           <button class="flash" slot="activate">&#9654; Install</button>
@@ -232,5 +258,8 @@ esptool --chip esp32c5 \
     <span>build __VERSION__</span>
   </footer>
 
+<script src="pig.js"></script>
+<script src="screens.js"></script>
+<script>mountPigScreens();</script>
 </body>
 </html>
