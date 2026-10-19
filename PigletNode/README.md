@@ -18,8 +18,17 @@ No other components needed.
 
 ---
 
-## Flashing (Arduino IDE)
+## Flashing
 
+### Option 1: PlatformIO (Recommended)
+Build and flash using [`platformio.ini`](platformio.ini) (`pioarduino` 55.03.39):
+```bash
+pio run -t upload
+pio device monitor -b 115200
+```
+*(Flashing automatically applies `--no-stub` to bypass the ESP32-C5 USB-Serial stub reset).*
+
+### Option 2: Arduino IDE
 1. Install the **ESP32 Arduino core** (v3.x) via Boards Manager:
    `https://espressif.github.io/arduino-esp32/package_esp32_index.json`
 
