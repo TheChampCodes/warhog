@@ -165,6 +165,13 @@ static uint32_t bestMs        = 0;
 static volatile bool coreFoundPending  = false;
 static uint8_t       coreMacPending[6] = {0};
 
+// Biscuit plain-reply (encrypt=0) interop. Set when the CORE_REPLY we latch
+// onto advertises "encrypt=0"; gates the type=5/type=10 config-handshake acks
+// and the bracketed AuthMode scan-result format a plain-reply Biscuit Core
+// expects. Never set when paired with a Piglet/JCMK Core, so the existing
+// node<->Core behavior is unchanged.
+static volatile bool plainReplyPending = false;
+
 // ================================================================
 //  Effective 2.4 GHz scan range
 //  Clamp the Core's assignment to 2.4 GHz. If the assignment is
@@ -1395,6 +1402,48 @@ static String authStr(wifi_auth_mode_t m) {
   }
 }
 
+// ---- Biscuit plain-reply (encrypt=0) interop helpers ----
+
+// True if a received CORE_REPLY indicates a Biscuit Core running in
+// unencrypted-reply mode (carries "encrypt=0" in its text field).
+static bool hasPlainReply(const void* data, int len) {
+  if (len < (int)sizeof(jcmk_text_msg_t)) return false;
+  const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
+  size_t n = msg->len < JCMK_TEXT_MAX ? msg->len : JCMK_TEXT_MAX;
+  for (size_t i = 0; i + 9 <= n; i++) {
+    if (memcmp(msg->text + i, "encrypt=0", 9) == 0) return true;
+  }
+  return false;
+}
+
+// Bracketed AuthMode token a plain-reply Biscuit Core expects in TEXT rows.
+static String bracketAuth(const String& a) {
+  if      (a == "OPEN")     return "[OPEN]";
+  else if (a == "WEP")      return "[WEP]";
+  else if (a == "WPA")      return "[WPA_PSK]";
+  else if (a == "WPA2")     return "[WPA2_PSK]";
+  else if (a == "WPA3")     return "[WPA3_PSK]";
+  else if (a == "WPAWPA2")  return "[WPA_WPA2_PSK]";
+  else if (a == "WPA2EAP")  return "[WPA2_ENTERPRISE]";
+  else if (a == "WPA2WPA3") return "[WPA2_WPA3_PSK]";
+  else                      return "[UNDEFINED]";
+}
+
+// Generic Biscuit protocol-control reply, always unicast to the Core. Used
+// for the type=15 (admin ack) and type=11 (config ack) handshake messages a
+// plain-reply Biscuit Core expects during node registration.
+static void sendControl(uint8_t type, uint32_t counter = 0, const char* text = nullptr) {
+  jcmk_text_msg_t msg = {};
+  memcpy(msg.magic, JCMK_MAGIC, 4);
+  msg.type = type;
+  msg.counter = counter;
+  if (text) {
+    msg.len = strlen(text);
+    memcpy(msg.text, text, msg.len);
+  }
+  esp_now_send(coreMac, (uint8_t*)&msg, sizeof(msg));
+}
+
 // ================================================================
 //  ESP-Now receive callback (runs in WiFi task — keep minimal)
 // ================================================================
@@ -1405,7 +1454,19 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
 
   if (type == MSG_CORE_REPLY && !haveCore && !coreFoundPending) {
     memcpy(coreMacPending, info->src_addr, 6);
+    plainReplyPending = hasPlainReply(data, len);
     coreFoundPending = true;
+
+  } else if (plainReplyPending && haveCore
+             && memcmp(info->src_addr, coreMac, 6) == 0
+             && len >= (int)sizeof(jcmk_text_msg_t) && type == MSG_ADMIN) {
+    // ---- Plain-reply Biscuit admin handshake (type 5, full 212-byte) ----
+    // Ack with type=15, echoing back the first text byte (or low byte of
+    // counter as a fallback). Fully gated on plainReplyPending so a
+    // Piglet/JCMK Core's binary admin still falls through to the branch below.
+    const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
+    sendControl(15, msg->len ? (uint8_t)msg->text[0] : msg->counter & 0xFF);
+    lastAdminMs = millis();
 
   } else if (type == MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
     // ---- JCMK binary admin (Piglet Core, JCMK Core) ----
@@ -1456,6 +1517,11 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
         assignVer = (assignVer == 255) ? 1 : assignVer + 1;  // mark as assigned
       }
     }
+    // Ack the config to a plain-reply Biscuit Core (type=11). Only when
+    // plainReplyPending so a Piglet/JCMK Core never sees an unsolicited ack.
+    if (plainReplyPending && haveCore && memcmp(info->src_addr, coreMac, 6) == 0) {
+      sendControl(11);
+    }
     lastAdminMs = millis();
 
   } else if (type == MSG_HEARTBEAT) {
@@ -1491,6 +1557,8 @@ static void resetToSearching() {
   assignVer    = 0;
   startIdx     = 0;
   endIdx       = NUM_CHANNELS - 1;
+  scanNumChans = 0;           // drop any sparse plan from the previous Core
+  plainReplyPending = false;  // re-detected from the next Core's CORE_REPLY
   hbCounter    = 0;
   lastHbMs     = 0;
   lastReqMs    = 0;
@@ -1600,8 +1668,12 @@ static void scanTick() {
         String ss = WiFi.SSID(i);
         snprintf(bestSsid, sizeof(bestSsid), "%s", ss.length() ? ss.c_str() : "(hidden)");
       }
+      String auth = authStr(WiFi.encryptionType(i));
+      // A plain-reply Biscuit Core expects the bracketed AuthMode token; a
+      // Piglet/JCMK Core takes the bare form unchanged.
+      if (plainReplyPending) auth = bracketAuth(auth);
       String line = WiFi.BSSIDstr(i) + "," + WiFi.SSID(i) + ","
-                  + authStr(WiFi.encryptionType(i)) + ","
+                  + auth + ","
                   + String(WiFi.channel(i)) + "," + String(WiFi.RSSI(i)) + ",W";
       sendText(line);
       netSent++;
@@ -1629,8 +1701,18 @@ static void nodeTick() {
     lastNewMs   = now;  // start awake, not asleep, after linking
     linkedMs    = now;
     addPeer(coreMac);
-    Serial.printf("[NODE] Core found: %02X:%02X:%02X:%02X:%02X:%02X\n",
-      coreMac[0], coreMac[1], coreMac[2], coreMac[3], coreMac[4], coreMac[5]);
+    if (plainReplyPending) {
+      // Identify ourselves to the Biscuit Core ("Piglet:<version>", type=7)
+      // and give it a short ch-6 admin window to send its role/channel-config
+      // handshake before we start hopping channels to scan.
+      setChannel(ESPNOW_CH);
+      sendControl(7, 0, "Piglet:" FIRMWARE_VERSION);
+      scanAdminWin = true;
+      scanAdminMs  = now;
+    }
+    Serial.printf("[NODE] Core found: %02X:%02X:%02X:%02X:%02X:%02X%s\n",
+      coreMac[0], coreMac[1], coreMac[2], coreMac[3], coreMac[4], coreMac[5],
+      plainReplyPending ? " (Biscuit plain-reply)" : "");
   }
 
   // --- Core timeout: re-search if ADMIN/HB silent for CORE_TIMEOUT_MS ---
@@ -1699,10 +1781,23 @@ static void statusTick() {
 // ================================================================
 //  Button: short press flips OLED page, hold >2 s to force a re-search
 // ================================================================
+// BTN_PIN (GPIO9) is the C3's BOOT/flash-mode strapping pin. esptool's
+// DTR/RTS auto-reset sequence (and some serial monitors re-opening the port
+// right after upload) can produce a burst of transient low pulses on GPIO9 in
+// the first moment loop() starts running. Without a guard, buttonTick() would
+// read each pulse as a real press -- a spurious OLED page flip, or (if the
+// noise lingers past 2 s) an unwanted Core re-search. Ignore all button input
+// for a short settle window right after boot to absorb it; armed at the end
+// of setup().
+static const uint32_t BTN_BOOT_SETTLE_MS = 1500;
+static uint32_t btnBootSettleUntilMs = 0;
+
 static void buttonTick() {
   static bool     pressing      = false;
   static bool     triggered     = false;
   static uint32_t pressStartMs  = 0;
+
+  if (millis() < btnBootSettleUntilMs) return;
 
   bool low = (digitalRead(BTN_PIN) == LOW);
 
@@ -1787,6 +1882,12 @@ void setup() {
   delay(stagger);
 
   nodeActive = true;
+
+  // Arm the button boot-settle guard now, right as loop() is about to start —
+  // this is when any lingering post-flash GPIO9 noise would otherwise be
+  // misread as real button presses (see buttonTick()).
+  btnBootSettleUntilMs = millis() + BTN_BOOT_SETTLE_MS;
+
   Serial.println("[NODE] Ready — searching for Core on ch 6...");
 }
 

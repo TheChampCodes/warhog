@@ -32,6 +32,14 @@ struct Config {
   // Leave empty to disable WDGoWars uploads.
   String wdgwarsApiKey;
 
+  // Wardrift API key (wdk_...) from wardrift.net, sent as "X-API-Key".
+  // The CSV file is uploaded as-is (raw body, Content-Type: text/csv,
+  // X-File-Name header) to POST /v1/ingest/signals -- no multipart wrapper
+  // and no parsing needed. If set, CSVs are uploaded to Wardrift AFTER
+  // WDGoWars but BEFORE WiGLE at every boot (2nd in the chain). Leave empty
+  // to disable Wardrift uploads.
+  String wardriftApiKey;
+
   // Custom SSID broadcast by the Marauder beacon-spam tool when its SSID source
   // is set to "Custom". Empty falls back to a generated name.
   String beaconSsid;
@@ -58,6 +66,21 @@ struct Config {
   // The web UI is still reachable if you connect to the Wardriver AP later,
   // but the device will not hold the STA link open. Requires reboot.
   bool autoStartAfterUpload = false;
+
+  // When true (default): if the configured home SSID is seen in a scan
+  // result while wardriving, the device stops scanning, connects to it, and
+  // uploads pending CSVs automatically. Mutually exclusive with
+  // autoStartAfterUpload -- enforced in cfgEnforceMutualExclusion() so the
+  // two features can never both be active (one wants to leave home Wi-Fi
+  // for good after boot, the other wants to return to it mid-drive).
+  bool uploadOnNetworkSeen = true;
+
+  // Network whitelist: up to 10 SSIDs that are scanned normally (still count
+  // toward Found totals) but are never written to the CSV log -- e.g. your
+  // own home/work network you don't want captured. Exact, case-sensitive
+  // match. Empty slots are ignored. Applies to both local scanning and
+  // mesh-forwarded records written by this device.
+  String ssidWhitelist[10];
 };
 
 const PinMap& detectPinsByChip();
@@ -69,3 +92,9 @@ bool parseKeyValueLine(const String& lineIn, String& keyOut, String& valOut);
 void cfgAssignKV(const String& k, const String& v);
 bool loadConfigFromSD();
 bool saveConfigToSD();
+
+// Forces uploadOnNetworkSeen off whenever autoStartAfterUpload is on, so the
+// two mutually-exclusive STA-connection behaviors never both run. Call after
+// any bulk config change (file load, Web UI save) -- not from cfgAssignKV()
+// itself, since key order within a save is not guaranteed.
+void cfgEnforceMutualExclusion();

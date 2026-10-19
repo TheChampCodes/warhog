@@ -109,6 +109,15 @@ static uint32_t nodeScanAdminMs  = 0;
 static volatile bool  jcmkCoreFoundPending = false;
 static uint8_t        jcmkCoreMacPending[6] = {0};
 
+// Biscuit plain-reply (encrypt=0) interop. Set when a received CORE_REPLY
+// advertises "encrypt=0"; gates the type=5/type=10 config-handshake handling
+// and the bracketed-auth scan-result format a plain-reply Biscuit Core
+// expects. Never set when paired with a Piglet/JCMK Core, so the existing
+// Core<->node path is unchanged.
+static volatile bool  biscuitPlainReplyPending = false;
+static uint8_t        biscuitChannels[JCMK_NUM_CHANNELS + 2];
+static volatile uint8_t biscuitChannelCount = 0;
+
 // ================================================================
 //  Core mode state
 // ================================================================
@@ -304,6 +313,72 @@ static void coreSendBiscuitChannels(const uint8_t* mac, const uint8_t* chans, ui
   Serial.printf("[CORE] cfg -> %02X%02X: %s\n", mac[4], mac[5], chList.c_str());
 }
 
+// ---- Biscuit plain-reply (encrypt=0) node-side interop helpers ----
+
+// True if a received CORE_REPLY indicates a Biscuit Core running in
+// unencrypted-reply mode (carries "encrypt=0" somewhere in its text field).
+static bool biscuitHasPlainReply(const void* data, int len) {
+  if (len < (int)sizeof(jcmk_text_msg_t)) return false;
+  const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
+  size_t n = msg->len < JCMK_TEXT_MAX ? msg->len : JCMK_TEXT_MAX;
+  for (size_t i = 0; i + 9 <= n; i++) {
+    if (memcmp(msg->text + i, "encrypt=0", 9) == 0) return true;
+  }
+  return false;
+}
+
+// Parses a Biscuit "channels=1,2,...;dwell=N" config message into
+// biscuitChannels[]/biscuitChannelCount, restarting the scan cycle from the
+// new list. Only used for plain-reply Biscuit pairings.
+static void biscuitSetChannels(const jcmk_text_msg_t* msg) {
+  if (msg->len < 9 || msg->len > JCMK_TEXT_MAX || memcmp(msg->text, "channels=", 9)) {
+    biscuitChannelCount = 0;
+    return;
+  }
+  char text[JCMK_TEXT_MAX + 1];
+  memcpy(text, msg->text, msg->len);
+  text[msg->len] = '\0';
+  char* end = strchr(text, ';');
+  if (end) *end = '\0';
+  uint8_t channels[JCMK_NUM_CHANNELS + 2];
+  uint8_t count = 0;
+  for (char* token = text + 9; *token && count < JCMK_NUM_CHANNELS + 2;) {
+    char* next;
+    long channel = strtol(token, &next, 10);
+    if (next == token || channel < 1 || channel > 255 || (*next && *next != ',')) {
+      count = 0;
+      break;
+    }
+    if (channel == 104 || channel == 108) {
+      channels[count++] = (uint8_t)channel;
+    } else {
+      for (uint8_t i = 0; i < JCMK_NUM_CHANNELS; i++) {
+        if (JCMK_CHANNELS[i] == channel) { channels[count++] = (uint8_t)channel; break; }
+      }
+    }
+    if (!*next) break;
+    token = next + 1;
+  }
+  memcpy(biscuitChannels, channels, count);
+  biscuitChannelCount = count;
+  nodeScanChOffset = 0;
+}
+
+// Generic Biscuit protocol-control reply, always unicast to the Core. Used
+// for the type=15 (admin ack) and type=11 (config ack) handshake messages a
+// plain-reply Biscuit Core expects during node registration.
+static void biscuitSendControl(uint8_t type, uint32_t counter = 0, const char* text = nullptr) {
+  jcmk_text_msg_t msg = {};
+  memcpy(msg.magic, JCMK_MAGIC, 4);
+  msg.type = type;
+  msg.counter = counter;
+  if (text) {
+    msg.len = strlen(text);
+    memcpy(msg.text, text, msg.len);
+  }
+  esp_now_send(jcmkCoreMac, (uint8_t*)&msg, sizeof(msg));
+}
+
 // ESP-Now receive callback — handles both Node and Core roles
 static void jcmkOnRecv(const esp_now_recv_info_t* info,
                         const uint8_t* data, int len) {
@@ -380,7 +455,25 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
     // ---- Node role (existing) ----
     if (type == JCMK_MSG_CORE_REPLY && !jcmkHaveCore && !jcmkCoreFoundPending) {
       memcpy(jcmkCoreMacPending, info->src_addr, 6);
+      biscuitPlainReplyPending = biscuitHasPlainReply(data, len);
       jcmkCoreFoundPending = true;
+    } else if (biscuitPlainReplyPending && jcmkHaveCore
+               && memcmp(info->src_addr, jcmkCoreMac, 6) == 0
+               && len >= (int)sizeof(jcmk_text_msg_t) && type == JCMK_MSG_ADMIN) {
+      // Plain-reply Biscuit admin handshake step: ack with type=15, echoing
+      // back the first text byte (or low byte of counter as a fallback).
+      // Fully gated on biscuitPlainReplyPending so a Piglet/JCMK Core's own
+      // 212-byte role message still falls through to the binary-admin branch
+      // below exactly as before.
+      const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
+      biscuitSendControl(15, msg->len ? (uint8_t)msg->text[0] : msg->counter & 0xFF);
+    } else if (biscuitPlainReplyPending && jcmkHaveCore
+               && memcmp(info->src_addr, jcmkCoreMac, 6) == 0
+               && len >= (int)sizeof(jcmk_text_msg_t) && type == 10) {
+      // Plain-reply Biscuit channel-config message (MSG_CONFIG_UPDATE) --
+      // parse the assigned channel list, then ack with type=11.
+      biscuitSetChannels((const jcmk_text_msg_t*)data);
+      biscuitSendControl(11);
     } else if (type == JCMK_MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
       const jcmk_admin_msg_t* adm = (const jcmk_admin_msg_t*)data;
       if (adm->assignment_version != jcmkAssignVer) {
@@ -548,8 +641,8 @@ static void coreParseAndLogText(const char* line) {
 //  window (heartbeat + NODE_ADMIN_WIN_MS) before the next cycle.
 // ================================================================
 static void nodeDoScanTick() {
-  uint8_t numCh = (jcmkEndIdx >= jcmkStartIdx)
-                ? (jcmkEndIdx - jcmkStartIdx + 1) : 0;
+  uint8_t numCh = biscuitChannelCount ? biscuitChannelCount :
+                  ((jcmkEndIdx >= jcmkStartIdx) ? (jcmkEndIdx - jcmkStartIdx + 1) : 0);
   if (numCh == 0) return;
 
   // Admin window: radio is on ch 6, heartbeat already sent, just waiting
@@ -575,8 +668,8 @@ static void nodeDoScanTick() {
     }
 
     uint8_t chIdx = jcmkStartIdx + nodeScanChOffset;
-    if (chIdx >= JCMK_NUM_CHANNELS) { nodeScanChOffset++; return; }
-    uint8_t channel = JCMK_CHANNELS[chIdx];
+    if (!biscuitChannelCount && chIdx >= JCMK_NUM_CHANNELS) { nodeScanChOffset++; return; }
+    uint8_t channel = biscuitChannelCount ? biscuitChannels[nodeScanChOffset] : JCMK_CHANNELS[chIdx];
 
     // Skip 5 GHz channels on 2.4 GHz-only hardware (S3, C6).
     // wardriverIsC5() returns true only for C5 (dual-band); all others are 2.4 GHz only.
@@ -609,6 +702,19 @@ static void nodeDoScanTick() {
       String bssid = WiFi.BSSIDstr(i);
       String ssid  = WiFi.SSID(i);
       String auth  = meshAuthModeToString(WiFi.encryptionType(i));
+      // A plain-reply Biscuit Core expects the bracketed AuthMode token set
+      // its own nodes emit; a Piglet/JCMK Core takes the bare form unchanged.
+      if (biscuitPlainReplyPending) {
+        if      (auth == "OPEN")     auth = "[OPEN]";
+        else if (auth == "WEP")      auth = "[WEP]";
+        else if (auth == "WPA")      auth = "[WPA_PSK]";
+        else if (auth == "WPA2")     auth = "[WPA2_PSK]";
+        else if (auth == "WPA3")     auth = "[WPA3_PSK]";
+        else if (auth == "WPAWPA2")  auth = "[WPA_WPA2_PSK]";
+        else if (auth == "WPA2EAP")  auth = "[WPA2_ENTERPRISE]";
+        else if (auth == "WPA2WPA3") auth = "[WPA2_WPA3_PSK]";
+        else                         auth = "[UNDEFINED]";
+      }
       int    ch    = WiFi.channel(i);
       int    rssi  = WiFi.RSSI(i);
       String line  = bssid + "," + ssid + "," + auth + ","
@@ -644,6 +750,8 @@ void enterNodeMode() {
   nodeScanActive        = false;
   nodeScanChOffset      = 0;
   nodeScanAdminWin      = false;
+  biscuitPlainReplyPending = false;
+  biscuitChannelCount   = 0;
 
   // Mesh mode owns the WiFi stack — prevent stopAPIfAllowed() from firing
   // WiFi.disconnect(true,true) after esp_now_init() would kill the ESP-Now driver.
@@ -990,9 +1098,18 @@ void nodeModeTick() {
     jcmkHaveCore    = true;
     jcmkReqInterval = JCMK_REQ_INIT_MS;
     jcmkAddPeer(jcmkCoreMac);
-    Serial.printf("[MESH] Core: %02X:%02X:%02X:%02X:%02X:%02X\n",
+    if (biscuitPlainReplyPending) {
+      // Identify ourselves to the Biscuit Core ("Piglet:<version>") and give
+      // it a short ch-6 admin window to send its role/channel-config handshake.
+      jcmkSetChannel(JCMK_ESPNOW_CH);
+      biscuitSendControl(7, 0, "Piglet:" FIRMWARE_VERSION);
+      nodeScanAdminWin = true;
+      nodeScanAdminMs  = now;
+    }
+    Serial.printf("[MESH] Core: %02X:%02X:%02X:%02X:%02X:%02X%s\n",
       jcmkCoreMac[0], jcmkCoreMac[1], jcmkCoreMac[2],
-      jcmkCoreMac[3], jcmkCoreMac[4], jcmkCoreMac[5]);
+      jcmkCoreMac[3], jcmkCoreMac[4], jcmkCoreMac[5],
+      biscuitPlainReplyPending ? " (Biscuit plain-reply)" : "");
   }
 
   // CORE_REQUEST with backoff (only while radio is free)
