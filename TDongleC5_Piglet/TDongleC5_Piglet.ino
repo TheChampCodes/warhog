@@ -43,7 +43,7 @@
 #include "esp32-hal-matrix.h"
 
 // Firmware version
-#define FIRMWARE_VERSION "v2.62"
+#define FIRMWARE_VERSION "v2.7"
 
 // ---------------- Pins (T-DONGLE C5) ----------------
 struct PinMap {
@@ -134,6 +134,11 @@ struct Config {
   String speedUnits    = "kmh";
   // WDGoWars API key from https://wdgwars.pl/profile
   String wdgwarsApiKey;
+  // Wardrift API key (wdk_...) from wardrift.net, sent as X-API-Key. The CSV
+  // file is uploaded as-is (raw body, Content-Type: text/csv, X-File-Name
+  // header) to POST /v1/ingest/signals. Runs 2nd in the upload chain: after
+  // WDGoWars, before WiGLE.
+  String wardriftApiKey;
   // Boot auto-upload limit: -1=all, 0=disabled, 1+=capped
   int maxBootUploads   = 25;
   // Optional device name shown in WiGLE header and filename
@@ -147,6 +152,13 @@ struct Config {
   // successfully. Lower this if you see SD write errors/corruption on
   // marginal wiring; default is a commonly-safe ceiling for SD-over-SPI.
   uint32_t sdMaxSpiHz = 20000000;
+  // Up to 10 SSIDs that will never be logged (exact, case-sensitive match).
+  // Empty slots never match, so blank/hidden SSIDs are not accidentally filtered.
+  String ssidWhitelist[10];
+  // When true (default): if the configured home SSID is seen in a scan
+  // result while wardriving, the device stops scanning, connects to it, and
+  // uploads pending CSVs automatically.
+  bool uploadOnNetworkSeen = true;
 };
 
 Config cfg;
@@ -179,6 +191,11 @@ static uint32_t prevUploadTotal = 0;
 // Scan control
 static bool userScanOverride = false;
 static bool autoPaused = false;
+
+// Set when the configured home SSID (cfg.homeSsid) is seen in a scan result
+// while wardriving. Consumed by checkHomeNetworkReturn(), which connects to
+// it and runs the upload flow, then clears the flag.
+static bool homeNetworkSeen = false;
 
 // AP window
 static uint32_t apStartMs = 0;
@@ -216,6 +233,9 @@ static int      wigleLastHttpCode = 0;
 
 static const char* WDGWARS_HOST = "wdgwars.pl";
 static const uint16_t WDGWARS_PORT = 443;
+
+static const char* WARDRIFT_HOST = "wardrift.net";
+static const uint16_t WARDRIFT_PORT = 443;
 
 // A 202 response only means the CSV was received and queued for import —
 // it does NOT mean the server has finished processing it. Blocking the
@@ -400,6 +420,7 @@ static void cfgAssignKV(const String& k, const String& v) {
   else if (k == "scanMode") { if (v == "aggressive" || v == "powersaving") cfg.scanMode = v; }
   else if (k == "speedUnits") { String vv = v; vv.toLowerCase(); if (vv == "kmh" || vv == "mph") cfg.speedUnits = vv; }
   else if (k == "wdgwarsApiKey")   cfg.wdgwarsApiKey = v;
+  else if (k == "wardriftApiKey")  cfg.wardriftApiKey = v;
   else if (k == "maxBootUploads") { int n = v.toInt(); if (n >= -1) cfg.maxBootUploads = n; }
   else if (k == "deviceName")      cfg.deviceName = v;
   else if (k == "meshModeOnBoot") { String vv = v; vv.toLowerCase(); if (vv == "core" || vv == "node" || vv == "none") cfg.meshModeOnBoot = vv; }
@@ -407,6 +428,14 @@ static void cfgAssignKV(const String& k, const String& v) {
   else if (k == "sdMaxSpiHz") {
     long hz = v.toInt();
     if (hz >= 400000 && hz <= 40000000) cfg.sdMaxSpiHz = (uint32_t)hz;  // sanity-clamp to a plausible SPI range
+  }
+  else if (k.startsWith("ssidWhitelist")) {
+    int idx = k.substring(13).toInt();
+    if (idx >= 1 && idx <= 10) cfg.ssidWhitelist[idx - 1] = v;  // assign even if empty, to allow clearing
+  }
+  else if (k == "uploadOnNetworkSeen") {
+    String vv = v; vv.toLowerCase();
+    cfg.uploadOnNetworkSeen = (vv == "true" || vv == "1");
   }
 }
 
@@ -428,6 +457,8 @@ static bool saveConfigToSD() {
   f.print("scanMode=");        f.println(cfg.scanMode);
   f.print("speedUnits=");      f.println(cfg.speedUnits);
   f.print("wdgwarsApiKey=");   f.println(cfg.wdgwarsApiKey);
+  f.println("# Wardrift API key (wdk_...) from wardrift.net, sent as X-API-Key.");
+  f.print("wardriftApiKey=");  f.println(cfg.wardriftApiKey);
   f.println("# Boot auto-upload limit: -1=all, 0=disabled, 1+=capped");
   f.print("maxBootUploads=");  f.println(cfg.maxBootUploads);
   f.println("# Device name: shown in WiGLE header and filename (optional)");
@@ -439,6 +470,12 @@ static bool saveConfigToSD() {
   f.println("# SD-over-SPI clock ceiling in Hz (default 20000000 = 20 MHz). Lower if you");
   f.println("# see SD write errors/corruption on marginal wiring.");
   f.print("sdMaxSpiHz="); f.println(cfg.sdMaxSpiHz);
+  f.println("# SSIDs that will never be logged (up to 10, exact case-sensitive match).");
+  for (int i = 0; i < 10; i++) {
+    f.print("ssidWhitelist"); f.print(i + 1); f.print("="); f.println(cfg.ssidWhitelist[i]);
+  }
+  f.println("# Connect + upload automatically when the home SSID is seen while wardriving.");
+  f.print("uploadOnNetworkSeen="); f.println(cfg.uploadOnNetworkSeen ? "true" : "false");
 
   f.flush(); f.close();
   Serial.println("[CFG] Saved OK");
@@ -575,16 +612,23 @@ static void csvEscapeQuotes(const String& in, char* out, size_t outSize) {
   out[o] = '\0';
 }
 
-static void appendWigleRow(const String& mac, const String& ssid, const String& auth,
+// Returns true if the row was actually written to the log file, false if it
+// was skipped for any reason (SD unavailable, whitelist match, encoding error).
+static bool appendWigleRow(const String& mac, const String& ssid, const String& auth,
                            const String& firstSeen, int channel, int rssi,
                            double lat, double lon, double altM, double accM) {
-  if (!sdOk || !logFile) return;
+  if (!sdOk || !logFile) return false;
+
+  // Skip logging for any SSID present in the whitelist (exact, case-sensitive match)
+  for (int i = 0; i < 10; i++) {
+    if (cfg.ssidWhitelist[i].length() > 0 && cfg.ssidWhitelist[i] == ssid) return false;
+  }
 
   // Rotate CSV before it exceeds the WDGoWars 15 MB upload limit
   if (csvRowCount >= CSV_MAX_ROWS) {
     Serial.println("[SD] CSV row limit reached, rotating log file");
     closeLogFile();
-    if (!openLogFile()) return;
+    if (!openLogFile()) return false;
   }
 
   // Frequency in MHz (WiGLE 1.6)
@@ -607,7 +651,7 @@ static void appendWigleRow(const String& mac, const String& ssid, const String& 
                       channel, (unsigned)freq, rssi, lat, lon, altM, accM);
   if (len < 0) {
     Serial.println("[SD] appendWigleRow: encoding error, row skipped");
-    return;
+    return false;
   }
   if ((size_t)len >= sizeof(line)) {
     Serial.printf("[SD] appendWigleRow: row truncated (needed %d bytes, buffer %u) — check SSID\n",
@@ -637,7 +681,7 @@ static void appendWigleRow(const String& mac, const String& ssid, const String& 
         sdOk = false;
       }
     }
-    return;
+    return false;
   }
 
   // Flush less often to avoid stalls (SD writes can block hard). Threshold
@@ -655,6 +699,7 @@ static void appendWigleRow(const String& mac, const String& ssid, const String& 
     lastFlushMs = millis();
     linesSinceFlush = 0;
   }
+  return true;
 }
 
 // Forward declarations needed by WDGoWars and WiGLE batch functions
@@ -740,7 +785,9 @@ static bool uploadFileToWdgwars(const String& path) {
   String filename = pathBasename(path);
   String pre = "--"+boundary+"\r\nContent-Disposition: form-data; name=\"file\"; filename=\""+filename+"\"\r\nContent-Type: text/csv\r\n\r\n";
   String post = "\r\n--"+boundary+"--\r\n";
-  uint32_t contentLen = (uint32_t)pre.length()+(uint32_t)f.size()+(uint32_t)post.length();
+  uint32_t fileSize = f.size();
+  uint32_t contentLen = (uint32_t)pre.length()+fileSize+(uint32_t)post.length();
+  Serial.printf("[WDGWars] File size: %.2f MB (%u bytes)\n", fileSize / (1024.0 * 1024.0), (unsigned)fileSize);
 
   WiFiClientSecure client;
   client.setInsecure(); client.setTimeout(25000);
@@ -819,6 +866,180 @@ static bool uploadFileToWdgwars(const String& path) {
   }
   uploadLastResult = "WDGW fail (" + String(code) + ")";
   Serial.printf("[WDGWars] Upload FAILED HTTP %d: %s\n", code, body.c_str());
+  return false;
+}
+
+// ---- Wardrift API key test — POSTs a minimal, 0-data-row CSV ----
+// No dedicated key-check endpoint exists, so this doubles as a safe live
+// test: posts a header-only WiGLE CSV to the real upload endpoint. A valid
+// key gets a normal 200 (0 rows recorded); an invalid key 401s/403s first.
+static bool wardriftTestKey() {
+  uploadLastResult = "";
+  if (WiFi.status() != WL_CONNECTED) { uploadLastResult = "No STA WiFi"; return false; }
+  if (cfg.wardriftApiKey.length() < 8) { uploadLastResult = "No API key set"; return false; }
+
+  String body =
+    String("WigleWifi-1.6,appRelease=") + FIRMWARE_VERSION +
+    ",model=Piglet-Test,release=1,device=Piglet-Test,display=SSD1306-128x64,"
+    "board=Piglet-Test,brand=Piglet,star=Sol,body=3,subBody=0\r\n"
+    "MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,"
+    "CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type\r\n";
+
+  WiFiClientSecure client;
+  client.setInsecure(); client.setTimeout(15000);
+  if (!client.connect(WARDRIFT_HOST, WARDRIFT_PORT)) { uploadLastResult = "TLS connect fail"; return false; }
+
+  client.print("POST /v1/ingest/signals HTTP/1.0\r\n");
+  client.print(String("Host: ") + WARDRIFT_HOST + "\r\n");
+  client.print(String("X-API-Key: ") + cfg.wardriftApiKey + "\r\n");
+  client.print("Content-Type: text/csv\r\n");
+  client.print("X-File-Name: test.wiglecsv\r\n");
+  client.print(String("Content-Length: ") + String(body.length()) + "\r\n");
+  client.print("Connection: close\r\n\r\n");
+  client.print(body);
+
+  uint32_t ws = millis();
+  while (!client.available() && client.connected() && (millis()-ws)<15000) { delay(10); yield(); }
+
+  String status = client.readStringUntil('\n'); status.trim();
+  int code = 0;
+  if (status.startsWith("HTTP/")) {
+    int s1 = status.indexOf(' ');
+    if (s1>0) { int s2=status.indexOf(' ',s1+1); if(s2>s1) code=status.substring(s1+1,s2).toInt(); }
+  }
+
+  String respBody = "";
+  bool inBody = false;
+  while (client.connected() || client.available()) {
+    String line = client.readStringUntil('\n'); line.trim();
+    if (!inBody) { if (line.length()==0) inBody=true; }
+    else { respBody+=line; if(respBody.length()>512) break; }
+  }
+  client.stop();
+
+  Serial.printf("[Wardrift] /v1/ingest/signals (test) HTTP %d  body: %s\n", code, respBody.substring(0,160).c_str());
+
+  if (code == 200) { uploadLastResult = "API key valid (200)"; return true; }
+  if (code==401||code==403) { uploadLastResult="API key invalid ("+String(code)+")"; }
+  else if (code==0) { uploadLastResult="No response from server"; }
+  else { uploadLastResult="Test inconclusive ("+String(code)+")"; }
+  return false;
+}
+
+// ---- Wardrift single-file upload — POST /v1/ingest/signals ----
+// Auth: X-API-Key header. The CSV file is uploaded as-is (raw body,
+// Content-Type: text/csv, plus an X-File-Name header) -- no multipart
+// wrapper and no per-row parsing needed. A 409 response means the server
+// already has this exact file -- treated as success so the file still gets
+// moved out of /logs instead of being retried forever.
+static bool uploadFileToWardrift(const String& path) {
+  if (WiFi.status() != WL_CONNECTED) { uploadLastResult = "No STA WiFi"; return false; }
+  if (cfg.wardriftApiKey.length() < 8) { uploadLastResult = "No API key set"; return false; }
+  digitalWrite(PINS.tft_cs, HIGH);
+  if (!SD.exists(path)) {
+    Serial.println("[Wardrift] File does not exist -- attempting SD recovery");
+    if (!sdTryRecover() || !SD.exists(path)) {
+      Serial.println("[Wardrift] File does not exist");
+      uploadLastResult = "File missing";
+      return false;
+    }
+    Serial.println("[Wardrift] SD recovered -- file found");
+  }
+
+  File f = SD.open(path, FILE_READ);
+  if (!f) {
+    Serial.println("[Wardrift] Failed to open file -- attempting SD recovery");
+    if (sdTryRecover()) f = SD.open(path, FILE_READ);
+  }
+  if (!f) { Serial.println("[Wardrift] Failed to open file"); uploadLastResult = "Open fail"; return false; }
+
+  String filename = pathBasename(path);
+  uint32_t fileSize = f.size();
+  Serial.printf("[Wardrift] File size: %.2f MB (%u bytes)\n", fileSize / (1024.0 * 1024.0), (unsigned)fileSize);
+
+  WiFiClientSecure client;
+  client.setInsecure(); client.setTimeout(25000);
+  bool connected = false;
+  for (int att=1; att<=3; att++) {
+    Serial.printf("[Wardrift] Free heap before connect (attempt %d/3): %u bytes\n",
+                  att, (unsigned)ESP.getFreeHeap());
+    if (client.connect(WARDRIFT_HOST, WARDRIFT_PORT)) { connected=true; break; }
+    Serial.printf("[Wardrift] TLS connect failed (attempt %d/3)\n", att);
+    client.stop(); delay(500); yield();
+  }
+  if (!connected) { uploadLastResult = "TLS connect fail"; Serial.println("[Wardrift] TLS connect failed after 3 attempts"); f.close(); return false; }
+
+  client.print("POST /v1/ingest/signals HTTP/1.0\r\n");
+  client.print(String("Host: ")+WARDRIFT_HOST+"\r\n");
+  client.print(String("X-API-Key: ")+cfg.wardriftApiKey+"\r\n");
+  client.print("Content-Type: text/csv\r\n");
+  client.print(String("X-File-Name: ")+filename+"\r\n");
+  client.print(String("Content-Length: ")+String(fileSize)+"\r\nConnection: close\r\n\r\n");
+
+  // Stream the raw file bytes directly as the body -- no multipart wrapper.
+  uint32_t fileSent = 0; bool wErr = false;
+  uint8_t buf[512];
+  while (!wErr) {
+    int n = f.read(buf, sizeof(buf)); if (n <= 0) break;
+    int off = 0;
+    while (off < n) { int w = client.write(buf+off, n-off); if (w<=0){wErr=true;break;} off+=w; fileSent+=w; }
+    yield();
+  }
+  f.close();
+  client.flush();
+  Serial.printf("[Wardrift] ContentLen=%u sent=%u (%s)\n", fileSize, fileSent,
+                (fileSent==fileSize)?"MATCH":"*** MISMATCH ***");
+  if (wErr || fileSent != fileSize) {
+    uploadLastResult = "Write error (body short)"; client.stop();
+    Serial.println("[Wardrift] Body write incomplete — aborting");
+    return false;
+  }
+
+  uint32_t ws = millis();
+  while (!client.available() && client.connected() && (millis()-ws)<60000) { delay(100); yield(); }
+  uint32_t elapsed = millis()-ws;
+  if (!client.available()) {
+    bool cc = !client.connected();
+    uploadLastResult = cc ? "Conn closed ("+String(elapsed)+"ms)" : "Timeout (60s)";
+    Serial.printf("[Wardrift] No data after %lums (%s)\n", (unsigned long)elapsed, cc?"conn closed":"timeout");
+    client.stop(); return false;
+  }
+
+  String status = client.readStringUntil('\n'); status.trim();
+  int code = 0;
+  if (status.startsWith("HTTP/")) {
+    int s1=status.indexOf(' '); if(s1>0){int s2=status.indexOf(' ',s1+1);if(s2>s1) code=status.substring(s1+1,s2).toInt();}
+  }
+  String body=""; bool inBody=false;
+  while (client.connected()||client.available()) {
+    String line=client.readStringUntil('\n'); line.trim();
+    if (!inBody){if(line.length()==0) inBody=true;} else{body+=line;if(body.length()>512) break;}
+  }
+  client.stop();
+  Serial.printf("[Wardrift] HTTP %d  body: %s\n", code, body.substring(0,160).c_str());
+
+  if (code == 200) {
+    int asIdx = body.indexOf("\"accepted_signals\":");
+    String countStr = "";
+    if (asIdx >= 0) {
+      int start = asIdx + 20, end = start;
+      while (end < (int)body.length() && isDigit(body[end])) end++;
+      countStr = body.substring(start, end);
+    }
+    uploadLastResult = countStr.length() ? "Uploaded OK (" + countStr + " signals)" : "Uploaded OK (200)";
+    return true;
+  }
+  if (code == 409) {
+    uploadLastResult = "Already uploaded (duplicate)";
+    Serial.println("[Wardrift] 409 -- treating as already-uploaded success");
+    return true;
+  }
+
+  String msg = "";
+  int mIdx = body.indexOf("\"message\":");
+  if (mIdx >= 0) { int q1=body.indexOf('"',mIdx+11); int q2=(q1>=0)?body.indexOf('"',q1+1):-1; if(q1>=0&&q2>q1) msg=body.substring(q1+1,q2); }
+  uploadLastResult = msg.length() ? ("Upload failed (" + String(code) + "): " + msg) : ("Upload failed (" + String(code) + ")");
+  Serial.printf("[Wardrift] Upload FAILED HTTP %d: %s\n", code, body.c_str());
   return false;
 }
 
@@ -1027,6 +1248,57 @@ static uint32_t uploadAllCsvsToWdgwars() {
   return okCount;
 }
 
+// ---- Wardrift-only batch upload (web UI button) ----
+static uint32_t uploadAllCsvsToWardrift() {
+  if (!sdOk) { uploadLastResult="SD not OK"; return 0; }
+  if (cfg.wardriftApiKey.length()<8) { uploadLastResult="No token set"; return 0; }
+
+  uploadPausedScanWasEnabled=scanningEnabled; scanningEnabled=false;
+  uploading=true; uploadTargetName="Wardrift UL";
+  uploadDoneFiles=0; uploadFailedFiles=0; uploadTotalFiles=0; uploadCurrentFile="";
+  ledBlue();
+
+  digitalWrite(PINS.tft_cs, HIGH);
+  File root=SD.open("/logs");
+  if (root){File f=root.openNextFile();while(f){String name=normalizeSdPath("/logs",f.name());
+    if(name.endsWith(".csv")&&!(currentCsvPath.length()&&name==currentCsvPath)) uploadTotalFiles++;
+    f.close();f=root.openNextFile();}root.close();}
+
+  if (uploadTotalFiles==0){uploading=false;uploadTargetName="";scanningEnabled=uploadPausedScanWasEnabled;uploadLastResult="No CSVs to upload";ledOff();return 0;}
+
+  std::vector<String> paths; paths.reserve(uploadTotalFiles+2);
+  root=SD.open("/logs");
+  if(root){File f=root.openNextFile();while(f){
+    String path=normalizeSdPath("/logs",f.name()); f.close();
+    if(path.endsWith(".csv")&&!(currentCsvPath.length()&&path==currentCsvPath)) paths.push_back(path);
+    f=root.openNextFile();}root.close();}
+
+  uint32_t okCount=0;
+  for(size_t i=0;i<paths.size();i++){
+    uploadCurrentFile=paths[i];
+    tftWigleUploadScreen(uploadDoneFiles,uploadTotalFiles,pathBasename(uploadCurrentFile));
+    Serial.printf("[UPLOAD] File %u/%u: %s (heap free: %u bytes)\n",
+                  (unsigned)(i + 1), (unsigned)paths.size(),
+                  pathBasename(paths[i]).c_str(), (unsigned)ESP.getFreeHeap());
+    { uint32_t emptySz = 0;
+      if(!csvHasDataRows(paths[i], &emptySz)){
+        Serial.printf("[UPLOAD] Empty CSV (%u bytes), deleting: %s\n", (unsigned)emptySz, pathBasename(paths[i]).c_str());
+        if (!SD.remove(paths[i])) Serial.printf("[UPLOAD] WARNING: SD.remove failed for %s -- file left in place\n", pathBasename(paths[i]).c_str());
+        uploadDoneFiles++;continue;
+      }
+    }
+    bool ok=uploadFileToWardrift(paths[i]);
+    if(ok){okCount++;moveToUploaded(paths[i]);}else{uploadFailedFiles++;}
+    uploadDoneFiles++;
+    tftWigleUploadScreen(uploadDoneFiles,uploadTotalFiles,pathBasename(uploadCurrentFile));
+    if(i<paths.size()-1) delay(1500);
+  }
+  uploading=false; uploadTargetName=""; scanningEnabled=uploadPausedScanWasEnabled;
+  uploadCurrentFile=""; uploadLastResult="Wardrift: "+String(okCount)+"/"+String(uploadTotalFiles);
+  ledOff(); forceStatusFullRedraw();
+  return okCount;
+}
+
 // ---------------- WiGLE Upload ----------------
 static bool moveToUploaded(const String& srcPath) {
   if (!sdOk) return false;
@@ -1119,7 +1391,9 @@ static bool uploadFileToWigle(const String& path) {
   String filename = pathBasename(path);
   String pre = "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"" + filename + "\"\r\nContent-Type: text/csv\r\n\r\n";
   String post = "\r\n--" + boundary + "--\r\n";
-  uint32_t contentLen = (uint32_t)pre.length() + (uint32_t)f.size() + (uint32_t)post.length();
+  uint32_t fileSize = f.size();
+  uint32_t contentLen = (uint32_t)pre.length() + fileSize + (uint32_t)post.length();
+  Serial.printf("[WiGLE] File size: %.2f MB (%u bytes)\n", fileSize / (1024.0 * 1024.0), (unsigned)fileSize);
 
   WiFiClientSecure client;
   client.setInsecure();
@@ -1148,7 +1422,6 @@ static bool uploadFileToWigle(const String& path) {
   }
   f.close();
 
-  uint32_t fileSize = contentLen - (uint32_t)pre.length() - (uint32_t)post.length();
   if (fileSent != fileSize) {
     client.stop();
     uploadLastResult = "Read/write error (body short)";
@@ -1254,10 +1527,20 @@ static uint32_t uploadAllCsvsToWigle(int maxFiles = -1) {
       tftWigleUploadScreen(uploadDoneFiles, uploadTotalFiles, pathBasename(paths[i]));
       wdgOk = uploadFileToWdgwars(paths[i]);
       if (!wdgOk) uploadFailedFiles++;
+      if (i < paths.size()-1 || cfg.wardriftApiKey.length() >= 8 || cfg.wigleBasicToken.length() >= 8) delay(1500);
+    }
+
+    // Step 2: Wardrift (if configured)
+    bool wardriftOk = false;
+    if (cfg.wardriftApiKey.length() >= 8) {
+      uploadTargetName = "Wardrift UL";
+      tftWigleUploadScreen(uploadDoneFiles, uploadTotalFiles, pathBasename(paths[i]));
+      wardriftOk = uploadFileToWardrift(paths[i]);
+      if (!wardriftOk) uploadFailedFiles++;
       if (i < paths.size()-1 || cfg.wigleBasicToken.length() >= 8) delay(1500);
     }
 
-    // Step 2: WiGLE (if configured)
+    // Step 3: WiGLE (if configured)
     bool wigleOk = false;
     if (cfg.wigleBasicToken.length() >= 8) {
       uploadTargetName = "WiGLE UL";
@@ -1266,7 +1549,7 @@ static uint32_t uploadAllCsvsToWigle(int maxFiles = -1) {
       if (!wigleOk) uploadFailedFiles++;
     }
 
-    if (wigleOk || wdgOk) { okCount++; moveToUploaded(paths[i]); }
+    if (wigleOk || wdgOk || wardriftOk) { okCount++; moveToUploaded(paths[i]); }
     uploadDoneFiles++;
     tftWigleUploadScreen(uploadDoneFiles, uploadTotalFiles, pathBasename(uploadCurrentFile));
     if (i < paths.size()-1) delay(2000);
@@ -2109,6 +2392,12 @@ static uint32_t jcmkNetworksFound = 0;  // raw networks seen each session
 static uint32_t jcmkSentCount   = 0;
 static uint32_t jcmkSendFailCount = 0;
 static uint32_t jcmkHbCounter   = 0;
+// Separate, always-incrementing counter for TEXT (scan-result) messages --
+// see the comment in the main Piglet firmware's MeshNode.cpp for why reusing
+// jcmkHbCounter here caused every TEXT message in a cycle to share an
+// identical, stale counter value (which can look like a duplicate to a Core
+// that dedupes by (sender, counter), silently dropping all of them).
+static uint32_t jcmkTextCounter = 0;
 static uint32_t jcmkLastHbMs    = 0;
 static uint32_t jcmkLastReqMs   = 0;
 static uint32_t jcmkReqInterval = JCMK_REQ_INIT_MS;
@@ -2123,6 +2412,9 @@ static uint32_t nodeScanAdminMs  = 0;
 static volatile bool  jcmkCoreFoundPending    = false;
 static uint8_t        jcmkCoreMacPending[6]   = {0};
 static volatile bool  jcmkCoreIsPigletPending = false;
+static volatile bool  biscuitPlainReplyPending = false;
+static uint8_t biscuitChannels[JCMK_NUM_CHANNELS + 2];
+static volatile uint8_t biscuitChannelCount = 0;
 
 // Piglet-to-Piglet transmit-slot state (only meaningful when jcmkCoreIsPiglet)
 static bool     jcmkCoreIsPiglet   = false;
@@ -2206,8 +2498,14 @@ static void jcmkSetChannel(uint8_t ch) {
 // counter that only tracks calls made (like jcmkSentCount) can look perfectly
 // healthy locally while every frame is silently failing at the radio layer.
 static void jcmkOnSent(const esp_now_send_info_t* txInfo, esp_now_send_status_t status) {
-  (void)txInfo;
-  if (status != ESP_NOW_SEND_SUCCESS) jcmkSendFailCount++;
+  if (status != ESP_NOW_SEND_SUCCESS) {
+    jcmkSendFailCount++;
+    if (txInfo && txInfo->des_addr) {
+      const uint8_t* d = txInfo->des_addr;
+      Serial.printf("[MESH] Send FAILED (no ACK) to %02X:%02X:%02X:%02X:%02X:%02X\n",
+        d[0], d[1], d[2], d[3], d[4], d[5]);
+    }
+  }
 }
 
 static bool jcmkAddPeer(const uint8_t* mac) {
@@ -2246,26 +2544,57 @@ static void jcmkSendHeartbeat() {
   msg.len     = PIGLET_MARKER_LEN;
   memcpy(msg.text, PIGLET_MARKER, PIGLET_MARKER_LEN);
   msg.text[PIGLET_MARKER_LEN] = '\0';
-  // Unicast to the already-known Core (this is only ever called once
-  // jcmkHaveCore is true) instead of broadcasting. Broadcast ESP-Now/802.11
-  // frames have no link-layer ACK or retry -- a dropped broadcast is silently
-  // lost with no way for either side to know, whereas unicast frames are
-  // retried and their delivery status is reported to jcmkOnSent().
-  esp_now_send(jcmkCoreMac, (uint8_t*)&msg, sizeof(msg));
+  // Unicast only for a confirmed Piglet-to-Piglet pairing, where we control
+  // peer registration on both ends and gain real link-layer retry/ACK.
+  // Broadcast for everything else (real JCMK hardware / Biscuit): field
+  // testing against real Biscuit hardware showed unicast frames getting a
+  // 100% "no ACK" failure rate even though esp_now_send() itself always
+  // accepted them -- i.e. the Biscuit's ESP-Now stack doesn't ack unicast
+  // from a sender it hasn't itself registered as a peer. Broadcast frames
+  // don't require the receiver to have the sender peered at all, which is
+  // exactly why the discovery handshake (also broadcast) works fine.
+  const uint8_t* dest = jcmkCoreIsPiglet ? jcmkCoreMac : JCMK_BCAST;
+  esp_err_t err = esp_now_send(dest, (uint8_t*)&msg, sizeof(msg));
+  if (err != ESP_OK) {
+    uint8_t pri; wifi_second_chan_t sec; esp_wifi_get_channel(&pri, &sec);
+    Serial.printf("[MESH] HEARTBEAT send() rejected: err=%d ch=%d dest=%02X:%02X:%02X:%02X:%02X:%02X\n",
+      (int)err, pri, dest[0], dest[1], dest[2], dest[3], dest[4], dest[5]);
+  }
 }
 
 static void jcmkSendText(const String& s) {
   jcmk_text_msg_t msg = {};
   memcpy(msg.magic, JCMK_MAGIC, 4);
   msg.type    = JCMK_MSG_TEXT;
-  msg.counter = jcmkHbCounter;
+  msg.counter = ++jcmkTextCounter;
   uint16_t slen = (uint16_t)((s.length() < JCMK_TEXT_MAX) ? s.length() : JCMK_TEXT_MAX);
   msg.len = slen;
   memcpy(msg.text, s.c_str(), slen);
   msg.text[slen] = '\0';
   // Always send full struct size — Biscuit Pro drops variable-length packets < 212 bytes.
-  // Unicast (see jcmkSendHeartbeat comment above) — only ever called once
-  // jcmkHaveCore is true, i.e. jcmkCoreMac is already a registered peer.
+  // Unicast only for confirmed Piglet-to-Piglet pairings (see jcmkSendHeartbeat
+  // comment above for why broadcast is required for real JCMK/Biscuit hardware).
+  const uint8_t* dest = jcmkCoreIsPiglet ? jcmkCoreMac : JCMK_BCAST;
+  esp_err_t err = esp_now_send(dest, (uint8_t*)&msg, sizeof(msg));
+  if (err != ESP_OK) {
+    uint8_t pri; wifi_second_chan_t sec; esp_wifi_get_channel(&pri, &sec);
+    Serial.printf("[MESH] TEXT send() rejected: err=%d ch=%d dest=%02X:%02X:%02X:%02X:%02X:%02X\n",
+      (int)err, pri, dest[0], dest[1], dest[2], dest[3], dest[4], dest[5]);
+  }
+}
+
+// Generic Biscuit protocol-control reply, always unicast to the Core. Used
+// for the type=15 (admin ack) and type=11 (config ack) handshake messages a
+// plain-reply Biscuit Core expects during node registration.
+static void biscuitSendControl(uint8_t type, uint32_t counter = 0, const char* text = nullptr) {
+  jcmk_text_msg_t msg = {};
+  memcpy(msg.magic, JCMK_MAGIC, 4);
+  msg.type = type;
+  msg.counter = counter;
+  if (text) {
+    msg.len = strlen(text);
+    memcpy(msg.text, text, msg.len);
+  }
   esp_now_send(jcmkCoreMac, (uint8_t*)&msg, sizeof(msg));
 }
 
@@ -2276,6 +2605,62 @@ static bool jcmkHasPigletMarker(const void* data, int len) {
   const jcmk_text_msg_t* tm = (const jcmk_text_msg_t*)data;
   if (tm->len < PIGLET_MARKER_LEN) return false;
   return memcmp(tm->text, PIGLET_MARKER, PIGLET_MARKER_LEN) == 0;
+}
+
+// True if a received CORE_REPLY indicates a Biscuit Core running in
+// unencrypted-reply mode (carries "encrypt=0" somewhere in its text field).
+static bool biscuitHasPlainReply(const void* data, int len) {
+  if (len < (int)sizeof(jcmk_text_msg_t)) return false;
+  const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
+  size_t n = msg->len < JCMK_TEXT_MAX ? msg->len : JCMK_TEXT_MAX;
+  for (size_t i = 0; i + 9 <= n; i++) {
+    if (memcmp(msg->text + i, "encrypt=0", 9) == 0) return true;
+  }
+  return false;
+}
+
+// Parses a Biscuit "channels=1,2,...;dwell=N" config message into
+// biscuitChannels[]/biscuitChannelCount, restarting the scan cycle from the
+// new list. Only used for plain-reply Biscuit pairings.
+// Takes the raw ESP-Now payload (like jcmkHasPigletMarker/biscuitHasPlainReply
+// above) rather than a jcmk_text_msg_t* parameter -- the Arduino .ino sketch
+// preprocessor auto-generates function prototypes near the top of the file,
+// before the jcmk_text_msg_t typedef is defined further down, which breaks
+// compilation for any top-level function taking that type directly.
+static void biscuitSetChannels(const void* data, int len) {
+  if (len < (int)sizeof(jcmk_text_msg_t)) { biscuitChannelCount = 0; return; }
+  const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
+  if (msg->len < 9 || msg->len > JCMK_TEXT_MAX || memcmp(msg->text, "channels=", 9)) {
+    biscuitChannelCount = 0;
+    return;
+  }
+  char text[JCMK_TEXT_MAX + 1];
+  memcpy(text, msg->text, msg->len);
+  text[msg->len] = '\0';
+  char* end = strchr(text, ';');
+  if (end) *end = '\0';
+  uint8_t channels[JCMK_NUM_CHANNELS + 2];
+  uint8_t count = 0;
+  for (char* token = text + 9; *token && count < JCMK_NUM_CHANNELS + 2;) {
+    char* next;
+    long channel = strtol(token, &next, 10);
+    if (next == token || channel < 1 || channel > 255 || (*next && *next != ',')) {
+      count = 0;
+      break;
+    }
+    if (channel == 104 || channel == 108) {
+      channels[count++] = (uint8_t)channel;
+    } else {
+      for (uint8_t i = 0; i < JCMK_NUM_CHANNELS; i++) {
+        if (JCMK_CHANNELS[i] == channel) { channels[count++] = (uint8_t)channel; break; }
+      }
+    }
+    if (!*next) break;
+    token = next + 1;
+  }
+  memcpy(biscuitChannels, channels, count);
+  biscuitChannelCount = count;
+  nodeScanChOffset = 0;
 }
 
 // ---- Core forward decls (used inside jcmkOnRecv callback) ----
@@ -2410,6 +2795,7 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
     if (type == JCMK_MSG_CORE_REPLY && !jcmkHaveCore && !jcmkCoreFoundPending) {
       memcpy(jcmkCoreMacPending, info->src_addr, 6);
       jcmkCoreIsPigletPending = jcmkHasPigletMarker(data, len);
+      biscuitPlainReplyPending = biscuitHasPlainReply(data, len);
       jcmkCoreFoundPending = true;
     } else if (type == JCMK_MSG_HEARTBEAT && jcmkHaveCore
                && memcmp(info->src_addr, jcmkCoreMac, 6) == 0) {
@@ -2417,6 +2803,20 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
       // (for Piglet pairings) the shared timing anchor for slot scheduling.
       jcmkCoreLastSeenMs = millis();
       if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
+    } else if (jcmkHaveCore && memcmp(info->src_addr, jcmkCoreMac, 6) == 0
+               && len >= (int)sizeof(jcmk_text_msg_t) && type == JCMK_MSG_ADMIN) {
+      // Plain-reply Biscuit admin handshake step: ack with type=15, echoing
+      // back the first text byte (or low byte of counter as a fallback).
+      const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
+      jcmkCoreLastSeenMs = millis();
+      biscuitSendControl(15, msg->len ? (uint8_t)msg->text[0] : msg->counter & 0xFF);
+    } else if (jcmkHaveCore && memcmp(info->src_addr, jcmkCoreMac, 6) == 0
+               && len >= (int)sizeof(jcmk_text_msg_t) && type == 10) {
+      // Plain-reply Biscuit channel-config message (MSG_CONFIG_UPDATE) --
+      // parse the assigned channel list, then ack with type=11.
+      jcmkCoreLastSeenMs = millis();
+      if (biscuitPlainReplyPending) biscuitSetChannels(data, len);
+      biscuitSendControl(11);
     } else if (type == JCMK_MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
       jcmkCoreLastSeenMs = millis();
       if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
@@ -2558,8 +2958,9 @@ static void coreParseAndLogText(const char* line) {
   if (gpsHasFix) { lat=gps.location.lat(); lon=gps.location.lng();
                    altM=gps.altitude.meters(); accM=gps.hdop.hdop(); }
   digitalWrite(PINS.tft_cs, HIGH);
-  appendWigleRow(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM);
-  coreRecordsRx++;
+  if (appendWigleRow(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM)) {
+    coreRecordsRx++;
+  }
 }
 
 static void enterCoreMode() {
@@ -2640,8 +3041,8 @@ static void coreModeTick() {
 //  window (heartbeat + NODE_ADMIN_WIN_MS) before the next cycle.
 // ================================================================
 static void nodeDoScanTick() {
-  uint8_t numCh = (jcmkEndIdx >= jcmkStartIdx)
-                ? (jcmkEndIdx - jcmkStartIdx + 1) : 0;
+  uint8_t numCh = biscuitChannelCount ? biscuitChannelCount :
+                  ((jcmkEndIdx >= jcmkStartIdx) ? (jcmkEndIdx - jcmkStartIdx + 1) : 0);
   if (numCh == 0) return;
 
   // Admin window: radio is on ch 6, heartbeat already sent, just waiting
@@ -2665,8 +3066,8 @@ static void nodeDoScanTick() {
     }
 
     uint8_t chIdx = jcmkStartIdx + nodeScanChOffset;
-    if (chIdx >= JCMK_NUM_CHANNELS) { nodeScanChOffset++; return; }
-    uint8_t channel = JCMK_CHANNELS[chIdx];
+    if (!biscuitChannelCount && chIdx >= JCMK_NUM_CHANNELS) { nodeScanChOffset++; return; }
+    uint8_t channel = biscuitChannelCount ? biscuitChannels[nodeScanChOffset] : JCMK_CHANNELS[chIdx];
 
     // Async scan of this single channel only (no blocking)
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
@@ -2694,10 +3095,25 @@ static void nodeDoScanTick() {
         String bssid = WiFi.BSSIDstr(i);
         String ssid  = WiFi.SSID(i);
         String auth  = authModeToString(WiFi.encryptionType(i));
+        if (biscuitPlainReplyPending) {
+          if (auth == "OPEN") auth = "[OPEN]";
+          else if (auth == "WEP") auth = "[WEP]";
+          else if (auth == "WPA") auth = "[WPA_PSK]";
+          else if (auth == "WPA2") auth = "[WPA2_PSK]";
+          else if (auth == "WPA3") auth = "[WPA3_PSK]";
+          else if (auth == "WPAWPA2") auth = "[WPA_WPA2_PSK]";
+          else if (auth == "WPA2EAP") auth = "[WPA2_ENTERPRISE]";
+          else if (auth == "WPA2WPA3") auth = "[WPA2_WPA3_PSK]";
+          else auth = "[UNDEFINED]";
+        }
         int    ch    = WiFi.channel(i);
         int    rssi  = WiFi.RSSI(i);
         String line  = bssid + "," + ssid + "," + auth + ","
                      + String(ch) + "," + String(rssi) + ",W";
+        // Log the exact payload content -- we've verified scanning finds
+        // networks and sends are attempted/delivered at the radio level, but
+        // never actually inspected what's inside the message being sent.
+        Serial.printf("[MESH] TX: %s\n", line.c_str());
         jcmkSendText(line);
         jcmkSentCount++;
       }
@@ -2772,6 +3188,7 @@ static void enterNodeMode() {
   jcmkSentCount         = 0;
   jcmkSendFailCount     = 0;
   jcmkHbCounter         = 0;
+  jcmkTextCounter       = 0;
   jcmkLastHbMs          = 0;
   jcmkLastReqMs         = 0;
   jcmkReqInterval       = JCMK_REQ_INIT_MS;
@@ -2781,6 +3198,7 @@ static void enterNodeMode() {
   nodeScanActive        = false;
   nodeScanChOffset      = 0;
   nodeScanAdminWin      = false;
+  biscuitChannelCount   = 0;
 
   // Mesh mode owns the WiFi stack — prevent stopAPIfAllowed() from firing
   // WiFi.disconnect(true,true) after esp_now_init() would kill the ESP-Now driver.
@@ -2859,6 +3277,14 @@ static void nodeModeTick() {
     jcmkCycleEpochMs   = now;
     jcmkReqInterval    = JCMK_REQ_INIT_MS;
     jcmkAddPeer(jcmkCoreMac);
+    if (biscuitPlainReplyPending) {
+      // Identify ourselves to the Biscuit Core ("Piglet:<version>") and give
+      // it a short ch-6 admin window to send its role/channel-config handshake.
+      jcmkSetChannel(JCMK_ESPNOW_CH);
+      biscuitSendControl(7, 0, "Piglet:" FIRMWARE_VERSION);
+      nodeScanAdminWin = true;
+      nodeScanAdminMs = now;
+    }
     Serial.printf("[MESH] Core: %02X:%02X:%02X:%02X:%02X:%02X%s\n",
       jcmkCoreMac[0], jcmkCoreMac[1], jcmkCoreMac[2],
       jcmkCoreMac[3], jcmkCoreMac[4], jcmkCoreMac[5],
@@ -2880,6 +3306,7 @@ static void nodeModeTick() {
     jcmkPendingHead  = jcmkPendingTail = 0;  // drop any buffered-but-unsent results
     nodeScanActive   = false;
     nodeScanAdminWin = false;
+    biscuitChannelCount = 0;
     jcmkReqInterval  = JCMK_REQ_INIT_MS;
   }
 
@@ -3103,7 +3530,7 @@ static bool initSD_SharedSPI() {
 static void handleRoot() { server.sendHeader("Cache-Control", "no-store"); server.send_P(200, "text/html", INDEX_HTML); }
 
 static void handleStatus() {
-  DynamicJsonDocument doc(2048);  // heap, not stack — avoids task stack overflow
+  DynamicJsonDocument doc(3072);  // heap, not stack — avoids task stack overflow; bumped for ssidWhitelist1..10
   bool allowScan = scanningEnabled && sdOk && (userScanOverride || !autoPaused);
   doc["scanningEnabled"] = scanningEnabled;
   doc["allowScan"] = allowScan;
@@ -3143,6 +3570,7 @@ static void handleStatus() {
   JsonObject c = doc.createNestedObject("config");
   c["wigleBasicToken"] = cfg.wigleBasicToken;
   c["wdgwarsApiKey"]   = cfg.wdgwarsApiKey;
+  c["wardriftApiKey"]  = cfg.wardriftApiKey;
   c["homeSsid"] = cfg.homeSsid;
   c["homePsk"] = cfg.homePsk.length() ? "(set)" : "";
   c["wardriverSsid"] = cfg.wardriverSsid;
@@ -3154,6 +3582,10 @@ static void handleStatus() {
   c["deviceName"]     = cfg.deviceName;
   c["meshModeOnBoot"] = cfg.meshModeOnBoot;
   c["rotateScreen180"] = cfg.rotateScreen180;
+  c["uploadOnNetworkSeen"] = cfg.uploadOnNetworkSeen;
+  for (int i = 0; i < 10; i++) {
+    c[String("ssidWhitelist") + String(i + 1)] = cfg.ssidWhitelist[i];
+  }
 
   String out; serializeJson(doc, out);
   server.send(200, "application/json", out);
@@ -3303,6 +3735,27 @@ static void handleWdgwarsUploadAll() {
   server.send(200, "application/json", out);
 }
 
+static void handleWardriftTest() {
+  if (WiFi.status() != WL_CONNECTED) { server.send(400,"application/json","{\"ok\":false,\"message\":\"STA WiFi not connected\"}"); return; }
+  if (cfg.wardriftApiKey.length() < 8)  { server.send(400,"application/json","{\"ok\":false,\"message\":\"No API key configured\"}"); return; }
+  bool ok = wardriftTestKey();
+  DynamicJsonDocument doc(256);
+  doc["ok"] = ok; doc["message"] = uploadLastResult;
+  String out; serializeJson(doc, out);
+  server.send(ok ? 200 : 400, "application/json", out);
+}
+
+static void handleWardriftUploadAll() {
+  if (!sdOk) { server.send(500,"text/plain","SD not available"); return; }
+  if (WiFi.status() != WL_CONNECTED) { server.send(400,"text/plain","Not connected"); return; }
+  if (cfg.wardriftApiKey.length() < 8)  { server.send(400,"text/plain","No API key configured"); return; }
+  uint32_t okCount = uploadAllCsvsToWardrift();
+  DynamicJsonDocument doc(256);
+  doc["ok"]=(okCount>0); doc["uploaded"]=okCount; doc["total"]=uploadTotalFiles; doc["message"]=uploadLastResult;
+  String out; serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
 static void handleCleanup() {
   if (!sdOk) { server.send(500, "text/plain", "SD not available"); return; }
   // Scan /logs and delete header-only CSV files
@@ -3361,18 +3814,72 @@ static void handleWigleUploadOne() {
   digitalWrite(PINS.tft_cs, HIGH);
   if (!SD.exists(path)) { server.send(404, "text/plain", "Not found"); return; }
 
+  bool hasWigle    = cfg.wigleBasicToken.length() >= 8;
+  bool hasWdg      = cfg.wdgwarsApiKey.length()   >= 8;
+  bool hasWardrift = cfg.wardriftApiKey.length()  >= 8;
+  if (!hasWigle && !hasWdg && !hasWardrift) {
+    server.send(400, "text/plain", "No WiGLE token, WDGoWars API key, or Wardrift token configured");
+    return;
+  }
+
   uploading = true; uploadPausedScanWasEnabled = scanningEnabled; scanningEnabled = false;
   uploadTotalFiles = 1; uploadDoneFiles = 0; uploadCurrentFile = path;
   ledBlue();
 
-  bool ok = uploadFileToWigle(path);
+  // Mirrors the batch upload flow (uploadAllCsvsToWigle): try WDGoWars, then
+  // Wardrift, then WiGLE (whichever are configured), and move the file to
+  // /uploaded if ANY succeed. Previously this only ever attempted WiGLE, so
+  // a file uploaded via this per-file button never moved out of /logs when
+  // only a WDGoWars API key was configured (no WiGLE token).
+  wigleLastHttpCode = 0;  // avoid reporting a stale code if WiGLE isn't attempted below
+  bool wdgOk = false;
+  if (hasWdg) {
+    uploadTargetName = "WDGW UL";
+    tftWigleUploadScreen(uploadDoneFiles, uploadTotalFiles, pathBasename(path));
+    wdgOk = uploadFileToWdgwars(path);
+    if (hasWardrift || hasWigle) delay(1500);  // brief settle between TLS sessions
+  }
+  String wdgResult = uploadLastResult;  // preserve before the next call overwrites it
+
+  bool wardriftOk = false;
+  if (hasWardrift) {
+    uploadTargetName = "Wardrift UL";
+    tftWigleUploadScreen(uploadDoneFiles, uploadTotalFiles, pathBasename(path));
+    wardriftOk = uploadFileToWardrift(path);
+    if (hasWigle) delay(1500);  // brief settle between TLS sessions
+  }
+  String wardriftResult = uploadLastResult;  // preserve before uploadFileToWigle overwrites it
+
+  bool wigleOk = false;
+  if (hasWigle) {
+    uploadTargetName = "WiGLE UL";
+    tftWigleUploadScreen(uploadDoneFiles, uploadTotalFiles, pathBasename(path));
+    wigleOk = uploadFileToWigle(path);
+  }
+
   uploadDoneFiles = 1; uploading = false;
-  scanningEnabled = uploadPausedScanWasEnabled; uploadCurrentFile = "";
+  scanningEnabled = uploadPausedScanWasEnabled; uploadCurrentFile = ""; uploadTargetName = "";
   ledOff(); forceStatusFullRedraw();
+
+  bool ok = wigleOk || wdgOk || wardriftOk;
   if (ok) moveToUploaded(path);
 
+  int attempted = (hasWdg ? 1 : 0) + (hasWardrift ? 1 : 0) + (hasWigle ? 1 : 0);
+  String message = uploadLastResult;
+  if (attempted > 1) {
+    std::vector<String> parts;
+    if (hasWdg)      parts.push_back("WDGW: " + wdgResult);
+    if (hasWardrift) parts.push_back("Wardrift: " + wardriftResult);
+    if (hasWigle)    parts.push_back("WiGLE: " + uploadLastResult);
+    message = "";
+    for (size_t i = 0; i < parts.size(); i++) {
+      if (i) message += " | ";
+      message += parts[i];
+    }
+  }
+
   DynamicJsonDocument doc(384);
-  doc["ok"] = ok; doc["httpCode"] = wigleLastHttpCode; doc["message"] = uploadLastResult;
+  doc["ok"] = ok; doc["httpCode"] = wigleLastHttpCode; doc["message"] = message;
   String out; serializeJson(doc, out);
   server.send(ok ? 200 : 500, "application/json", out);
 }
@@ -3500,6 +4007,8 @@ static void startWebServer() {
   server.on("/wigle/upload",    HTTP_POST, handleWigleUploadOne);
   server.on("/wdgwars/test",    HTTP_POST, handleWdgwarsTest);
   server.on("/wdgwars/uploadAll",HTTP_POST, handleWdgwarsUploadAll);
+  server.on("/wardrift/test",      HTTP_POST, handleWardriftTest);
+  server.on("/wardrift/uploadAll", HTTP_POST, handleWardriftUploadAll);
   server.on("/reboot",          HTTP_POST, handleReboot);
   server.on("/cleanup",         HTTP_POST, handleCleanup);
   server.on("/deleteAll",       HTTP_POST, handleDeleteAll);
@@ -3626,6 +4135,60 @@ static bool shouldPauseScanning() {
   return false;
 }
 
+// ---- Home network auto-return: connect + upload mid-drive ----
+
+// Minimum time between connection attempts triggered by seeing the home
+// SSID in scan results -- avoids hammering connectSTA() every scan cycle
+// (every ~1.5 s in aggressive mode) while lingering near the edge of range.
+static const uint32_t HOME_RETURN_RETRY_MS = 30000UL;
+
+static void checkHomeNetworkReturn() {
+  if (!homeNetworkSeen) return;
+  homeNetworkSeen = false;  // consume -- re-armed next time it's seen in a scan
+
+  // Feature disabled via config -- toggleable, default on.
+  if (!cfg.uploadOnNetworkSeen) return;
+
+  // Already connected, or AP actively serving the config UI -- nothing to do.
+  if (WiFi.status() == WL_CONNECTED) return;
+  if (apWindowActive) return;
+
+  static uint32_t lastAttemptMs = 0;
+  if (lastAttemptMs != 0 && (millis() - lastAttemptMs) < HOME_RETURN_RETRY_MS) return;
+  lastAttemptMs = millis();
+
+  Serial.println("[WIFI] Home network seen while wardriving -- connecting to upload");
+
+  bool staOk = connectSTA(12000);
+  lastStaStatus = WiFi.status();
+
+  if (!staOk) {
+    Serial.println("[WIFI] Home network connect failed -- resuming wardriving");
+    WiFi.setAutoReconnect(false);
+    WiFi.persistent(false);
+    WiFi.disconnect(true, false);  // eraseap=false keeps NVS credentials
+    delay(50);
+    WiFi.mode(WIFI_STA);           // idle STA ready for scanning
+    return;
+  }
+
+  // Connected -- shouldPauseScanning() now returns true so wardriving pauses
+  // automatically; handleStaTransitions() resumes it once STA disconnects
+  // (e.g. driving back out of home WiFi range).
+  bool hasWigle = cfg.wigleBasicToken.length() > 0;
+  bool hasWdg   = cfg.wdgwarsApiKey.length()   > 0;
+
+  if (sdOk && (hasWigle || hasWdg) && cfg.maxBootUploads != 0) {
+    Serial.print("[UPLOAD] Home network connected. Services: ");
+    if (hasWdg)   Serial.print("WDGoWars ");
+    if (hasWigle) Serial.print("WiGLE ");
+    Serial.println();
+    uploadAllCsvsToWigle(cfg.maxBootUploads);
+  } else {
+    Serial.println("[UPLOAD] Skipped (SD not ready, no tokens set, or maxBootUploads=0)");
+  }
+}
+
 // Last-known GPS position — used when fix is temporarily lost so networks
 // aren't logged at 0,0 (null island).
 // Updated every loop() iteration (not just on scan) so position stays current
@@ -3674,11 +4237,17 @@ static void processScanResults(int n) {
     int rssi = WiFi.RSSI(i);
     String authStr = authModeToString(WiFi.encryptionType(i));
 
+    // Exact, case-sensitive match against the configured home network --
+    // lets the device notice it has returned home mid-drive instead of
+    // only checking at boot.
+    if (!homeNetworkSeen && cfg.homeSsid.length() > 0 && ssid == cfg.homeSsid) {
+      homeNetworkSeen = true;
+    }
+
     if (is2g) networksFound2G++;
     else      networksFound5G++;
 
-    appendWigleRow(mac, ssid, authStr, firstSeen, ch, rssi, lat, lon, altM, accM);
-    wrote++;
+    if (appendWigleRow(mac, ssid, authStr, firstSeen, ch, rssi, lat, lon, altM, accM)) wrote++;
   }
 
   WiFi.scanDelete();
@@ -3770,6 +4339,14 @@ static void advancePage() {
   Serial.printf("[PAGE] -> %d\n", next);
 }
 
+// On XIAO ESP32-C5 (the T-Dongle's chip), GPIO0 is the BOOT/flash-mode
+// strapping pin. Although the T-Dongle's button is wired to GPIO28 (not
+// GPIO0), this guard is kept for defense-in-depth consistency with the
+// main Piglet firmware in case of future pin-map changes; set once near
+// the end of setup().
+static const uint32_t BTN_BOOT_SETTLE_MS = 1500;
+static uint32_t btnBootSettleUntilMs = 0;
+
 // Button: triple-tap on pig page (3) = twerk; single press = advance page;
 //         2 s hold on mesh page (4) = toggle Core / Node.
 static void pollButton() {
@@ -3780,6 +4357,8 @@ static void pollButton() {
   static uint8_t  clickCount    = 0;
   static uint32_t firstClickMs  = 0;
   static const uint32_t MULTI_MS = 400;  // max gap between taps
+
+  if (millis() < btnBootSettleUntilMs) return;
 
   bool low = (digitalRead(PINS.btn) == LOW);
 
@@ -4067,6 +4646,11 @@ void setup() {
   updateTFT(0);
   ledOff();
   enableModemSleep();
+
+  // Arm the button boot-settle guard now, right as loop() is about to start —
+  // see pollButton() for the rationale.
+  btnBootSettleUntilMs = millis() + BTN_BOOT_SETTLE_MS;
+
   Serial.printf("[BOOT] CPU: %lu MHz\n", (unsigned long)getCpuFrequencyMhz());
   Serial.println("=== Boot complete ===");
 }
@@ -4186,7 +4770,10 @@ void loop() {
 
   // Skip STA transition handler in mesh mode — it calls WiFi.disconnect(wifioff=true)
   // which stops the WiFi driver and deinits ESP-Now.
-  if (!meshNodeActive && !meshCoreActive) handleStaTransitions();
+  if (!meshNodeActive && !meshCoreActive) {
+    handleStaTransitions();
+    checkHomeNetworkReturn();
+  }
 
   // Check on any WDGoWars jobs queued during the last upload batch. This is
   // rate-limited internally to at most one short network round-trip per

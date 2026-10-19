@@ -18,8 +18,10 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   .header .logo{font-size:28px} .header h1{font-size:20px;font-weight:700;margin:0} .header .sub{font-size:12px;color:var(--muted);margin:0}
   .card{border:1px solid var(--border);border-radius:12px;padding:14px;margin:12px 0;background:var(--card)}
   .card h3{margin:0 0 10px 0;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
-  input,select{padding:8px 10px;border-radius:7px;border:1px solid var(--inputBorder);width:100%;background:var(--input);color:var(--text);font-size:13px;outline:none}
-  input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accentDim)}
+  input,select,textarea{padding:8px 10px;border-radius:7px;border:1px solid var(--inputBorder);width:100%;box-sizing:border-box;background:var(--input);color:var(--text);font-size:13px;font-family:inherit;outline:none}
+  input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px var(--accentDim)}
+  input::placeholder,textarea::placeholder{color:var(--muted);opacity:.6}
+  textarea{resize:vertical;line-height:1.4}
   label{display:block;font-size:11px;font-weight:500;color:var(--muted);margin-bottom:3px;text-transform:uppercase;letter-spacing:.3px}
   button{cursor:pointer;padding:8px 14px;border-radius:7px;border:1px solid var(--inputBorder);background:var(--btn);color:var(--text);font-size:13px;width:100%;transition:background .1s}
   button:hover{background:var(--btnHover)} button:active{transform:translateY(1px)} button:disabled{opacity:.4;cursor:not-allowed}
@@ -91,24 +93,39 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
         <button class="btn-primary" onclick="wdgwarsUploadAll()">Upload All CSVs</button>
       </div>
     </div>
+    <div class="inner-card">
+      <h3 style="margin:0 0 6px 0">Wardrift</h3>
+      <div id="wardriftMsg" class="muted" style="font-size:13px">—</div>
+      <div class="row mt-sm">
+        <button onclick="wardriftTest()">Test API Key</button>
+        <button class="btn-primary" onclick="wardriftUploadAll()">Upload All CSVs</button>
+      </div>
+    </div>
   </div>
 
   <div class="card">
     <h3>Configuration</h3>
     <div class="cfg-grid">
-      <div><label>WiGLE Basic Token</label><input id="wigleBasicToken" placeholder="Encoded token from wigle.net"><a href="https://wigle.net/account" target="_blank" rel="noopener" style="font-size:11px;margin-top:4px;display:inline-block;color:#2dd4bf">&rarr; Get your API Key here</a></div>
-      <div><label>WDGoWars API Key</label><input id="wdgwarsApiKey" placeholder="Key from wdgwars.pl/profile"><a href="https://wdgwars.pl/profile/" target="_blank" rel="noopener" style="font-size:11px;margin-top:4px;display:inline-block;color:#2dd4bf">&rarr; Get your API Key here</a></div>
-      <div><label>Device Name</label><input id="deviceName" placeholder="e.g. rover1 (optional, used in filenames)"></div>
+      <div><label>WiGLE Basic Token</label><input id="wigleBasicToken" placeholder="Encoded token from wigle.net" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><a href="https://wigle.net/account" target="_blank" rel="noopener" style="font-size:11px;margin-top:4px;display:inline-block;color:#2dd4bf">&rarr; Get your API Key here</a></div>
+      <div><label>WDGoWars API Key</label><input id="wdgwarsApiKey" placeholder="Key from wdgwars.pl/profile" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><a href="https://wdgwars.pl/profile/" target="_blank" rel="noopener" style="font-size:11px;margin-top:4px;display:inline-block;color:#2dd4bf">&rarr; Get your API Key here</a></div>
+      <div><label>Wardrift API Key</label><input id="wardriftApiKey" placeholder="API key (wdk_...) from wardrift.net" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false"><a href="https://wardrift.net" target="_blank" rel="noopener" style="font-size:11px;margin-top:4px;display:inline-block;color:#2dd4bf">&rarr; Get your API Key at wardrift.net</a></div>
+      <div><label>Device Name</label><input id="deviceName" placeholder="e.g. rover1 (optional, used in filenames)" autocomplete="off"></div>
       <div><label>GPS Baud</label><input id="gpsBaud" type="number" value="9600"></div>
-      <div><label>Home SSID</label><input id="homeSsid"></div>
-      <div><label>Home PSK</label><input id="homePsk" type="password"></div>
-      <div><label>Wardriver SSID</label><input id="wardriverSsid"></div>
-      <div><label>Wardriver PSK</label><input id="wardriverPsk" type="password"></div>
+      <div><label>Home SSID</label><input id="homeSsid" autocomplete="off"></div>
+      <div><label>Home PSK</label><input id="homePsk" type="password" autocomplete="new-password"></div>
+      <div><label>Wardriver SSID</label><input id="wardriverSsid" autocomplete="off"></div>
+      <div><label>Wardriver PSK</label><input id="wardriverPsk" type="password" autocomplete="new-password"></div>
       <div><label>Scan Mode</label><select id="scanMode"><option value="aggressive">Aggressive</option><option value="powersaving">Power Saving</option></select></div>
       <div><label>Speed Units</label><select id="speedUnits"><option value="kmh">km/h</option><option value="mph">mph</option></select></div>
       <div><label>Max Boot Uploads (-1=all, 0=off)</label><input id="maxBootUploads" type="number" value="25" min="-1"></div>
       <div><label>Mesh Mode On Boot</label><select id="meshModeOnBoot"><option value="none">None</option><option value="core">Core</option><option value="node">Node</option></select></div>
       <div><label>Rotate Screen 180&deg; (requires reboot)</label><select id="rotateScreen180"><option value="false">Normal</option><option value="true">Rotated 180&deg;</option></select></div>
+      <div><label>Upload When Home Network Seen</label><select id="uploadOnNetworkSeen"><option value="true">Enabled (default)</option><option value="false">Disabled</option></select></div>
+    </div>
+    <div class="mt-md">
+      <label>Network Whitelist &mdash; SSIDs to Scan but Never Log (up to 10, one per line)</label>
+      <textarea id="ssidWhitelist" rows="4" placeholder="e.g.&#10;MyHomeNetwork&#10;MyOfficeWifi"></textarea>
+      <p style="margin:6px 0 0;font-size:11px;color:var(--muted)">Exact, case-sensitive match. Still counted in Found totals but never written to the CSV log.</p>
     </div>
     <div class="row mt-md">
       <button class="btn-primary" onclick="saveCfg()">Save Config</button>
@@ -157,6 +174,7 @@ function setWigleMsg(t,cls){const el=$('wigleMsg');el.textContent=t;el.className
 function formatBytes(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
 const maskedKeys=new Set(['homePsk']);
 function setWdgwarsMsg(t,cls){const el=$('wdgwarsMsg');el.textContent=t;el.className=cls||'muted'}
+function setWardriftMsg(t,cls){const el=$('wardriftMsg');el.textContent=t;el.className=cls||'muted'}
 
 async function loadStatus(){try{
   const r=await fetch('/status.json');const j=await r.json();
@@ -171,8 +189,14 @@ async function loadStatus(){try{
   setText('vApSeen',j.apClientsSeen?'Yes':'No');
   const lu=j.uploadLastResult?j.uploadLastResult+' (HTTP '+(j.wigleLastHttpCode||'\u2014')+')':'\u2014';
   setText('vLastUpload',lu);
-  for(const k of ['wigleBasicToken','wdgwarsApiKey','deviceName','gpsBaud','homeSsid','wardriverSsid','wardriverPsk','scanMode','speedUnits','maxBootUploads','meshModeOnBoot','rotateScreen180']){
+  for(const k of ['wigleBasicToken','wdgwarsApiKey','wardriftApiKey','deviceName','gpsBaud','homeSsid','wardriverSsid','wardriverPsk','scanMode','speedUnits','maxBootUploads','meshModeOnBoot','rotateScreen180','uploadOnNetworkSeen']){
     if(j.config&&(k in j.config)){const v=String(j.config[k]);if(maskedKeys.has(k)&&(v===''||v==='(set)'))continue;const el=$(k);if(el)el.value=v}}
+  if(j.config){
+    const lines=[];
+    for(let i=1;i<=10;i++){const v=j.config['ssidWhitelist'+i];if(v)lines.push(v);}
+    const wlEl=$('ssidWhitelist');
+    if(wlEl)wlEl.value=lines.join('\n');
+  }
 }catch(e){console.error(e)}}
 
 async function loadFiles(){try{
@@ -219,9 +243,12 @@ async function deleteAllLogs(){
 }
 
 async function doSave(){
-  const keys=['wigleBasicToken','wdgwarsApiKey','deviceName','gpsBaud','homeSsid','homePsk','wardriverSsid','wardriverPsk','scanMode','speedUnits','maxBootUploads','meshModeOnBoot','rotateScreen180'];
+  const keys=['wigleBasicToken','wdgwarsApiKey','wardriftApiKey','deviceName','gpsBaud','homeSsid','homePsk','wardriverSsid','wardriverPsk','scanMode','speedUnits','maxBootUploads','meshModeOnBoot','rotateScreen180','uploadOnNetworkSeen'];
   let body='# Saved from Web UI\n';
   for(const k of keys){const el=$(k);const v=el?(el.value??''):'';if(maskedKeys.has(k)&&v==='')continue;body+=k+'='+String(v).replace(/\r?\n/g,' ')+'\n'}
+  const wlEl=$('ssidWhitelist');
+  const wlLines=(wlEl?wlEl.value:'').split(/\r?\n/).map(s=>s.trim()).filter(s=>s.length>0).slice(0,10);
+  for(let i=0;i<10;i++){body+='ssidWhitelist'+(i+1)+'='+(wlLines[i]||'')+'\n'}
   await fetch('/saveConfig',{method:'POST',headers:{'Content-Type':'text/plain'},body});
   await loadStatus();
 }
@@ -238,6 +265,8 @@ async function wigleUploadAll(){setWigleMsg('Uploading...');try{const r=await fe
 async function wigleUploadOne(name){setWigleMsg('Uploading '+name+'...');try{const r=await fetch('/wigle/upload?name='+encodeURIComponent(name),{method:'POST'});const j=await r.json().catch(()=>null);if(j)setWigleMsg(j.message||(j.ok?'OK':'Failed'),j.ok?'ok-text':'bad-text')}catch(e){setWigleMsg('Failed','bad-text')}await loadFiles();await loadStatus()}
 async function wdgwarsTest(){setWdgwarsMsg('Testing...');try{const r=await fetch('/wdgwars/test',{method:'POST'});const j=await r.json().catch(()=>({ok:false,message:'Bad response'}));setWdgwarsMsg(j.message||(j.ok?'Key valid':'Key invalid'),j.ok?'ok-text':'bad-text')}catch(e){setWdgwarsMsg('Failed','bad-text')}}
 async function wdgwarsUploadAll(){setWdgwarsMsg('Uploading...');try{const r=await fetch('/wdgwars/uploadAll',{method:'POST'});const j=await r.json().catch(()=>null);if(j){setWdgwarsMsg(j.message||(j.ok?j.uploaded+' uploaded':'Failed'),j.ok?'ok-text':'bad-text')}}catch(e){setWdgwarsMsg('Failed','bad-text')}await loadFiles();}
+async function wardriftTest(){setWardriftMsg('Testing...');try{const r=await fetch('/wardrift/test',{method:'POST'});const j=await r.json().catch(()=>({ok:false,message:'Bad response'}));setWardriftMsg(j.message||(j.ok?'Key valid':'Key invalid'),j.ok?'ok-text':'bad-text')}catch(e){setWardriftMsg('Failed','bad-text')}}
+async function wardriftUploadAll(){setWardriftMsg('Uploading...');try{const r=await fetch('/wardrift/uploadAll',{method:'POST'});const j=await r.json().catch(()=>null);if(j){setWardriftMsg(j.message||(j.ok?j.uploaded+' uploaded':'Failed'),j.ok?'ok-text':'bad-text')}}catch(e){setWardriftMsg('Failed','bad-text')}await loadFiles();}
 let apModalShown=false,apModalDismissed=false,apModalIv=null;
 function hideApKeepAlive(){const ov=$('apKeepAliveOverlay');if(ov)ov.style.display='none';if(apModalIv){clearInterval(apModalIv);apModalIv=null;}apModalShown=false;}
 function showApKeepAlive(ms){const ov=$('apKeepAliveOverlay');if(!ov||apModalShown)return;apModalShown=true;ov.style.display='flex';let s=Math.max(0,Math.ceil(ms/1000));$('apKeepAliveCountdown').textContent=s+'s';apModalIv=setInterval(()=>{s--;if(s<=0){clearInterval(apModalIv);apModalIv=null;return;}$('apKeepAliveCountdown').textContent=s+'s';},1000);}

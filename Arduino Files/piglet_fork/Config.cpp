@@ -120,6 +120,7 @@ void cfgAssignKV(const String& k, const String& v) {
     if (n >= -1) cfg.maxBootUploads = n;  // -1=all, 0=disabled, 1+=limited
   }
   else if (k == "wdgwarsApiKey")    cfg.wdgwarsApiKey = v;
+  else if (k == "wardriftApiKey")   cfg.wardriftApiKey = v;
   else if (k == "deviceName")       cfg.deviceName = v;
   else if (k == "meshModeOnBoot") {
     String vv = v; vv.toLowerCase();
@@ -133,9 +134,27 @@ void cfgAssignKV(const String& k, const String& v) {
     String vv = v; vv.toLowerCase();
     cfg.autoStartAfterUpload = (vv == "true" || vv == "1");
   }
+  else if (k == "uploadOnNetworkSeen") {
+    String vv = v; vv.toLowerCase();
+    cfg.uploadOnNetworkSeen = (vv == "true" || vv == "1");
+  }
   else if (k == "sdMaxSpiHz") {
     long hz = v.toInt();
     if (hz >= 400000 && hz <= 40000000) cfg.sdMaxSpiHz = (uint32_t)hz;  // sanity-clamp to a plausible SPI range
+  }
+  else if (k.startsWith("ssidWhitelist")) {
+    // Keys are ssidWhitelist1..ssidWhitelist10 (1-indexed in the file/UI,
+    // 0-indexed in the array). Assign unconditionally -- including empty
+    // strings -- so a slot can be cleared by saving it blank from the Web UI.
+      int idx = k.substring(13).toInt();  // strlen("ssidWhitelist") == 13
+    if (idx >= 1 && idx <= 10) cfg.ssidWhitelist[idx - 1] = v;
+  }
+}
+
+void cfgEnforceMutualExclusion() {
+  if (cfg.autoStartAfterUpload && cfg.uploadOnNetworkSeen) {
+    Serial.println("[CFG] autoStartAfterUpload + uploadOnNetworkSeen both on -- forcing uploadOnNetworkSeen off");
+    cfg.uploadOnNetworkSeen = false;
   }
 }
 
@@ -164,6 +183,7 @@ bool loadConfigFromSD() {
       }
     }
     f.close();
+    cfgEnforceMutualExclusion();
 
     Serial.println("[CFG] Loaded config from /wardriver.cfg:");
     Serial.print("      wardriverSsid: "); Serial.println(cfg.wardriverSsid);
@@ -283,6 +303,11 @@ bool saveConfigToSD() {
   f.println("# WDGoWars API key from https://wdgwars.pl/profile (leave empty to disable)");
   f.print("wdgwarsApiKey="); f.println(cfg.wdgwarsApiKey);
 
+  f.println("");
+  f.println("# Wardrift API key (wdk_...) from wardrift.net, sent as X-API-Key.");
+  f.println("# Leave empty to disable Wardrift uploads.");
+  f.print("wardriftApiKey="); f.println(cfg.wardriftApiKey);
+
   f.println("# Device name — identifies this Piglet in WiGLE headers and filenames.");
   f.println("# Alphanumeric + _ - only.  E.g.: rover1  backpack  car");
   f.print("deviceName="); f.println(cfg.deviceName);
@@ -305,10 +330,23 @@ bool saveConfigToSD() {
   f.print("autoStartAfterUpload="); f.println(cfg.autoStartAfterUpload ? "true" : "false");
 
   f.println("");
+  f.println("# Connect + upload automatically when the home SSID is seen while wardriving.");
+  f.println("# Mutually exclusive with autoStartAfterUpload -- enabling that always forces");
+  f.println("# this off. Default: true.");
+  f.print("uploadOnNetworkSeen="); f.println(cfg.uploadOnNetworkSeen ? "true" : "false");
+
+  f.println("");
   f.println("# SD-over-SPI clock ceiling in Hz. Boot negotiates the fastest speed up to");
   f.println("# this that mounts successfully. Lower if you see SD write errors/corruption");
   f.println("# on marginal wiring (default 20000000 = 20 MHz).");
   f.print("sdMaxSpiHz="); f.println(cfg.sdMaxSpiHz);
+
+  f.println("");
+  f.println("# Network whitelist: up to 10 SSIDs that are scanned but never logged to CSV.");
+  f.println("# Exact, case-sensitive match. Leave blank to disable a slot.");
+  for (uint8_t i = 0; i < 10; i++) {
+    f.print("ssidWhitelist"); f.print(i + 1); f.print("="); f.println(cfg.ssidWhitelist[i]);
+  }
 
   f.flush();
   f.close();

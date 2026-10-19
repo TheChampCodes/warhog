@@ -121,6 +121,17 @@ static void onPageChange(uint8_t oldPage, uint8_t newPage) {
 
 static const uint32_t DOUBLE_PRESS_MS = 350;  // max gap between presses for double-press
 
+// On XIAO ESP32-C5, the user button shares GPIO0 with the BOOT/flash-mode
+// strapping pin. esptool's DTR/RTS auto-reset sequence (and some serial
+// monitors re-opening the port right after upload) can produce a burst of
+// transient low pulses on GPIO0 in the first moment loop() starts running.
+// Without a guard, pollButton() would interpret each pulse as a real press
+// and could walk currentPage all the way to the mesh node page on its own.
+// Ignore all button input for a short settle window right after boot to
+// absorb that noise; set once near the end of setup().
+static const uint32_t BTN_BOOT_SETTLE_MS = 1500;
+static uint32_t btnBootSettleUntilMs = 0;
+
 static void pollButton() {
   static uint32_t lastDebounce = 0;
   static int lastState = HIGH;
@@ -131,6 +142,8 @@ static void pollButton() {
   // Double-press detection
   static uint8_t  clickCount = 0;
   static uint32_t firstClickMs = 0;
+
+  if (millis() < btnBootSettleUntilMs) return;
 
   int s = digitalRead(pins.btn);
 
@@ -578,6 +591,11 @@ void setup() {
 
   updateOLED(0);
 
+  // Arm the button boot-settle guard now, right as loop() is about to start —
+  // this is when any lingering post-flash GPIO0 noise would otherwise be
+  // misread as real button presses (see pollButton()).
+  btnBootSettleUntilMs = millis() + BTN_BOOT_SETTLE_MS;
+
   Serial.println("=== Boot complete ===");
 }
 
@@ -712,7 +730,10 @@ void loop() {
 
   // Skip STA transition handler in mesh mode — it calls WiFi.disconnect(wifioff=true)
   // which stops the WiFi driver and deinits ESP-Now.
-  if (!meshNodeActive && !meshCoreActive) handleStaTransitions();
+  if (!meshNodeActive && !meshCoreActive) {
+    handleStaTransitions();
+    checkHomeNetworkReturn();
+  }
 
   // Check on any WDGoWars jobs queued during the last upload batch. This is
   // rate-limited internally to at most one short network round-trip per
