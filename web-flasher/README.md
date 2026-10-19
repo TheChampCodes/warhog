@@ -16,10 +16,13 @@ The flasher automatically serves manifest configurations and binaries from [`man
 | **Piglet Core (XIAO C5)** | ESP32-C5 | Dual-band 2.4/5 GHz Wi-Fi 6, GPS, SD, OLED, BLE Bridge | `manifests/xiao_c5.json` (fork) · `manifests/xiao_c5-ham.json` (official) |
 | **PigletNode C5** | ESP32-C5 | Headless dual-band 2.4/5 GHz ESP-NOW mesh scanning node (no screen/SD) | `manifests/pigletnode_c5.json` (fork) · `manifests/pigletnode_c5-ham.json` (official) |
 | **Waveshare C6 Mini** | ESP32-C6 | 1.47″ ST7789 vertical color TFT, GPS, SD logging | `manifests/waveshare_c6.json` |
+| **LilyGo T-Dongle C5** | ESP32-C5 | USB-A dongle, 0.96″ ST7735 TFT, APA102 LED, GPS, SD, dual-band — *official build* | `manifests/tdongle_c5-ham.json` |
 
 ### Fork vs. official firmware toggle
 
-The two XIAO **C5** cards (Piglet Core and PigletNode C5) carry a **skon's fork / official** switch. These are the only boards with a drop-in official equivalent: the switch repoints the installer at upstream [`Hamspiced/piglet`](https://github.com/Hamspiced/piglet)'s **latest** GitHub release (`Piglet.ino.merged.bin` / `PigletNode.ino.merged.bin`) via the `releases/latest/download/…` URL, so it always tracks ham's newest release with no version pinning. The remaining cards stay fork-only because upstream ships no CYD, Guition, Waveshare, or ESP32-C3 build.
+The two XIAO **C5** cards (Piglet Core and PigletNode C5) carry a **skon's fork / official** switch. The switch repoints the installer at upstream [`Hamspiced/piglet`](https://github.com/Hamspiced/piglet)'s **latest** GitHub release (`Piglet.ino.merged.bin` / `PigletNode.ino.merged.bin`) via the `releases/latest/download/…` URL, so it always tracks ham's newest release with no version pinning. The fork side is now synced to upstream **v2.7**.
+
+The **T-Dongle C5** card is official-only: the fork's T-Dongle firmware tracks upstream exactly, so it flashes ham's prebuilt `TDongleC5_Piglet.ino.merged.bin` (latest) directly. The CYD, Guition, Waveshare, and ESP32-C3 cards stay fork-only — upstream ships no build for those boards.
 
 ---
 

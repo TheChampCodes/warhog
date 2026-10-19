@@ -298,6 +298,28 @@ esptool --chip esp32c5 \
         </details>
       </div>
 
+      <!-- LilyGo T-Dongle C5 (official-only) -->
+      <div class="board">
+        <h2>LilyGo T-Dongle C5</h2>
+        <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">0.96&Prime; TFT</span><span class="chip">official</span></div>
+        <p class="desc">USB-A dongle &mdash; 0.96&Prime; ST7735 TFT, APA102 LED, GPS, SD, dual-band. Flashes the official Piglet T-Dongle build; the fork tracks upstream for this board.</p>
+        <esp-web-install-button manifest="manifests/tdongle_c5-ham.json">
+          <button class="flash" slot="activate">&#9654; Install (may fail)</button>
+          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
+        </esp-web-install-button>
+        <div class="alt">
+          <a href="https://github.com/Hamspiced/piglet/releases/latest/download/TDongleC5_Piglet.ino.merged.bin" download>Download .bin</a>
+          <a href="manifests/tdongle_c5-ham.json">manifest</a>
+        </div>
+        <details open><summary>C5 note &mdash; use --no-stub if the browser fails</summary>
+<pre><span class="c"># C5 USB-Serial/JTAG drops on stub;</span>
+<span class="c"># flash from a terminal instead:</span>
+esptool --chip esp32c5 \
+  --no-stub write-flash \
+  0x0 TDongleC5_Piglet.ino.merged.bin</pre>
+        </details>
+      </div>
+
       <!-- Waveshare C6 -->
       <div class="board">
         <h2>Waveshare C6 Mini</h2>
