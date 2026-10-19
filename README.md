@@ -11,14 +11,14 @@ This repository unifies official upstream Piglet hardware with dedicated ports f
 
 ## 1. Upstream Comparison: What is Different in This Fork?
 
-This repository builds upon upstream [Hamspiced/piglet](https://github.com/Hamspiced/piglet). Based strictly on code analysis, the key technical differences are:
+This repository builds upon upstream [Hamspiced/piglet](https://github.com/Hamspiced/piglet). The shared firmware (Piglet Core, PigletNode, T-Dongle C5) is kept **in sync with upstream — currently v2.7** (Wardrift upload, SSID whitelist, home-network auto-return, GPIO0 boot-settle fix). The table below is the fork's additions *on top of* that upstream baseline:
 
 | Feature / Subsystem | Upstream (`Hamspiced/piglet`) | This Fork (`olosnoks/piglet`) |
 |---|---|---|
 | **Supported Hardware** | Seeed XIAO (S3, C5, C6, C3), T-Dongle C5, Waveshare C6 Mini | **+ Freenove S3 CYD (2.8″ Touch)**<br>**+ Guition JC8048W550 (5.0″ 800×480 RGB IPS)**<br>**+ PigletNode C3 (0.42″ OLED Micro-Node)** |
 | **Offensive & Security Tools** | None (pure wardriving & discovery) | **ESP32 Marauder Port:** Raw 802.11 frame injection, beacon spam, deauth attacks, deauth detection, PMKID capture with Hashcat 22000 export, WPS vulnerability checks, and raw PCAP logging to SD |
 | **Bluetooth Low Energy (BLE)** | Not supported | **BLE Wardriving & Sniffers:** AirTag/FindMy tracking, Flipper Zero detection, Pwnagotchi detection, and multi-platform BLE advertisement floods (Apple, SwiftPair, Samsung, Fast Pair) |
-| **Mesh Ecosystem Support** | JCMK Wardriver ESP-NOW protocol | **JCMK Protocol + Biscuit Pro Compatibility Layer** (`BiscuitCompat.cpp`) and **Core BLE Bridge** (`BLEBridge.cpp`) for forwarding BLE records across the mesh |
+| **Mesh Ecosystem Support** | JCMK Wardriver ESP-NOW protocol + Biscuit Pro mesh interop (incl. plain-reply, v2.63) | Same mesh base **+ Biscuit Manager BLE/GATT layer** (`BiscuitCompat.cpp`) and **Core BLE Bridge** (`BLEBridge.cpp`) for forwarding BLE records to companion apps |
 | **Visuals & Graphics Engine** | Standard OLED text/icons and static pig screen | **PigWorld Graphics Engine:** 1-bit pixel art animation loop, dynamic multi-node flocking visualization (scaling 1 to 6 pigs concurrently), and 2.4 GHz channel occupancy histograms |
 | **Web Flasher** | Documentation references to IDEs | **Integrated Web Flasher:** Browser-based flashing via WebSerial (ESP Web Tools) with real-time SVG device screen previews |
 | **Build Infrastructure** | Arduino IDE sketches | **Reproducible PlatformIO Environments:** Standardized across all targets with pinned `pioarduino` 55.03.39 (ESP-IDF 5.x / Arduino 3.x) toolchains |
