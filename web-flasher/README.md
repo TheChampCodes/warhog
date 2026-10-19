@@ -13,9 +13,13 @@ The flasher automatically serves manifest configurations and binaries from [`man
 | **Freenove S3 CYD** | ESP32-S3 | 2.4 GHz scanning, GPS, SD logging, 2.8″ touch display (HAM UI4 suite) | `manifests/freenove-s3-cyd-ham-ui4.json` |
 | **Guition JC8048W550** | ESP32-S3 | 5.0″ 800×480 RGB IPS panel, GT911 touch, GPS, SD logging | `manifests/guition-jc8048w550.json` |
 | **PigletNode C3** | ESP32-C3 | Minimal 2.4 GHz ESP-NOW mesh worker node with 0.42″ OLED & animated PigWorld | `manifests/esp32c3_oled.json` |
-| **Piglet Official (XIAO C5)** | ESP32-C5 | Official Piglet Core: Dual-band 2.4/5 GHz Wi-Fi 6, GPS, SD, OLED, BLE Bridge | `manifests/xiao_c5.json` |
-| **PigletNode C5** | ESP32-C5 | Headless dual-band 2.4/5 GHz ESP-NOW mesh scanning node (no screen/SD) | `manifests/pigletnode_c5.json` |
+| **Piglet Core (XIAO C5)** | ESP32-C5 | Dual-band 2.4/5 GHz Wi-Fi 6, GPS, SD, OLED, BLE Bridge | `manifests/xiao_c5.json` (fork) · `manifests/xiao_c5-ham.json` (official) |
+| **PigletNode C5** | ESP32-C5 | Headless dual-band 2.4/5 GHz ESP-NOW mesh scanning node (no screen/SD) | `manifests/pigletnode_c5.json` (fork) · `manifests/pigletnode_c5-ham.json` (official) |
 | **Waveshare C6 Mini** | ESP32-C6 | 1.47″ ST7789 vertical color TFT, GPS, SD logging | `manifests/waveshare_c6.json` |
+
+### Fork vs. official firmware toggle
+
+The two XIAO **C5** cards (Piglet Core and PigletNode C5) carry a **skon's fork / official** switch. These are the only boards with a drop-in official equivalent: the switch repoints the installer at upstream [`Hamspiced/piglet`](https://github.com/Hamspiced/piglet)'s **latest** GitHub release (`Piglet.ino.merged.bin` / `PigletNode.ino.merged.bin`) via the `releases/latest/download/…` URL, so it always tracks ham's newest release with no version pinning. The remaining cards stay fork-only because upstream ships no CYD, Guition, Waveshare, or ESP32-C3 build.
 
 ---
 

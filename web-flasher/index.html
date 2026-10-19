@@ -116,6 +116,17 @@
   esp-web-install-button{--esp-tools-button-color:transparent}
   .unsupported{color:var(--danger);font-size:12px}
 
+  /* firmware source toggle (fork vs official) */
+  .fwrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .fwlbl{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+  .fwtoggle{display:inline-flex;border:1px solid var(--inputBorder);border-radius:7px;overflow:hidden;background:var(--input)}
+  .fwtoggle button{appearance:none;cursor:pointer;border:0;background:transparent;color:var(--muted);padding:5px 11px;font:600 11px system-ui,sans-serif;transition:background .1s,color .1s}
+  .fwtoggle button+button{border-left:1px solid var(--inputBorder)}
+  .fwtoggle button.on{background:var(--accent);color:var(--primaryText)}
+  .fwtoggle button:not(.on):hover{color:var(--text)}
+  .fwnote{font-size:11.5px;color:var(--muted);margin:0}
+  .fwnote b{color:var(--accent);font-weight:600}
+
   .alt{display:flex;gap:12px;flex-wrap:wrap;font-size:12px}
   details{border-top:1px solid var(--border);padding-top:10px}
   summary{cursor:pointer;color:var(--muted);font-size:12px;list-style:none}
@@ -217,18 +228,30 @@
       </div>
 
       <!-- XIAO C5 -->
-      <div class="board">
-        <h2>Official Piglet &mdash; XIAO C5</h2>
+      <div class="board" data-fw-dual
+           data-manifest-fork="manifests/xiao_c5.json"
+           data-manifest-ham="manifests/xiao_c5-ham.json"
+           data-bin-fork="firmware/xiao_c5.bin"
+           data-bin-ham="https://github.com/Hamspiced/piglet/releases/latest/download/Piglet.ino.merged.bin">
+        <h2>Piglet Core &mdash; XIAO C5</h2>
         <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">GPS</span><span class="chip">dual-band</span></div>
         <div class="screen" data-screen="piglet"></div>
-        <p class="desc">The official Piglet firmware &mdash; GPS, SD, WiGLE logging, mesh. Dual-band 5 GHz. Browser flashing is unreliable on the C5 &mdash; see note.</p>
+        <p class="desc">Piglet Core &mdash; GPS, SD, WiGLE logging, mesh. Dual-band 5 GHz. Browser flashing is unreliable on the C5 &mdash; see note.</p>
+        <div class="fwrow">
+          <span class="fwlbl">Firmware</span>
+          <div class="fwtoggle" role="group" aria-label="Firmware source">
+            <button type="button" class="on" data-fw="fork">skon's fork</button>
+            <button type="button" data-fw="ham">official</button>
+          </div>
+        </div>
+        <p class="fwnote" data-fwnote></p>
         <esp-web-install-button manifest="manifests/xiao_c5.json">
           <button class="flash" slot="activate">&#9654; Install (may fail)</button>
           <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
         </esp-web-install-button>
         <div class="alt">
-          <a href="firmware/xiao_c5.bin" download>Download .bin</a>
-          <a href="manifests/xiao_c5.json">manifest</a>
+          <a href="firmware/xiao_c5.bin" download data-dl>Download .bin</a>
+          <a href="manifests/xiao_c5.json" data-mf>manifest</a>
         </div>
         <details open><summary>C5 note &mdash; use --no-stub if the browser fails</summary>
 <pre><span class="c"># The C5 USB-Serial/JTAG drops</span>
@@ -242,17 +265,29 @@ esptool --chip esp32c5 \
       </div>
 
       <!-- PigletNode C5 -->
-      <div class="board">
+      <div class="board" data-fw-dual
+           data-manifest-fork="manifests/pigletnode_c5.json"
+           data-manifest-ham="manifests/pigletnode_c5-ham.json"
+           data-bin-fork="firmware/pigletnode_c5.bin"
+           data-bin-ham="https://github.com/Hamspiced/piglet/releases/latest/download/PigletNode.ino.merged.bin">
         <h2>PigletNode C5</h2>
         <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">mesh node</span></div>
         <p class="desc">XIAO C5 mesh node &mdash; boots straight into ESP-Now node mode. Dual-band, no display.</p>
+        <div class="fwrow">
+          <span class="fwlbl">Firmware</span>
+          <div class="fwtoggle" role="group" aria-label="Firmware source">
+            <button type="button" class="on" data-fw="fork">skon's fork</button>
+            <button type="button" data-fw="ham">official</button>
+          </div>
+        </div>
+        <p class="fwnote" data-fwnote></p>
         <esp-web-install-button manifest="manifests/pigletnode_c5.json">
           <button class="flash" slot="activate">&#9654; Install (may fail)</button>
           <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
         </esp-web-install-button>
         <div class="alt">
-          <a href="firmware/pigletnode_c5.bin" download>Download .bin</a>
-          <a href="manifests/pigletnode_c5.json">manifest</a>
+          <a href="firmware/pigletnode_c5.bin" download data-dl>Download .bin</a>
+          <a href="manifests/pigletnode_c5.json" data-mf>manifest</a>
         </div>
         <details open><summary>C5 note &mdash; use --no-stub if the browser fails</summary>
 <pre><span class="c"># C5 USB-Serial/JTAG drops on stub;</span>
@@ -293,6 +328,42 @@ esptool --chip esp32c5 \
 
 <script src="pig.js"></script>
 <script src="screens.js"></script>
-<script>mountPigScreens();</script>
+<script>
+  mountPigScreens();
+
+  // Fork / official firmware-source toggle on dual-source cards.
+  (function mountFwToggles(){
+    var NOTE = {
+      fork: 'Flashing <b>skon’s fork</b> — built from olosnoks/piglet.',
+      ham:  'Flashing the <b>official</b> firmware — Hamspiced/piglet latest release.'
+    };
+    document.querySelectorAll('.board[data-fw-dual]').forEach(function(board){
+      var seg  = board.querySelector('.fwtoggle');
+      var btn  = board.querySelector('esp-web-install-button');
+      var dl   = board.querySelector('[data-dl]');
+      var mf   = board.querySelector('[data-mf]');
+      var note = board.querySelector('[data-fwnote]');
+      if(!seg || !btn) return;
+
+      function apply(src){
+        var manifest = board.dataset['manifest' + src.charAt(0).toUpperCase() + src.slice(1)];
+        var bin      = board.dataset['bin' + src.charAt(0).toUpperCase() + src.slice(1)];
+        if(manifest){ btn.setAttribute('manifest', manifest); if(mf) mf.setAttribute('href', manifest); }
+        if(bin && dl) dl.setAttribute('href', bin);
+        seg.querySelectorAll('button[data-fw]').forEach(function(b){
+          b.classList.toggle('on', b.dataset.fw === src);
+        });
+        if(note) note.innerHTML = NOTE[src] || '';
+        board.dataset.fwActive = src;
+      }
+
+      seg.addEventListener('click', function(e){
+        var b = e.target.closest('button[data-fw]');
+        if(b) apply(b.dataset.fw);
+      });
+      apply('fork'); // default
+    });
+  })();
+</script>
 </body>
 </html>
