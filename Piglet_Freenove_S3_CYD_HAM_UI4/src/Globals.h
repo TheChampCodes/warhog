@@ -67,4 +67,8 @@ extern int wigleLastHttpCode;
 extern const char* WIGLE_HOST;
 extern const uint16_t WIGLE_PORT;
 
+// ---- Wardrift constants ----
+extern const char* WARDRIFT_HOST;
+extern const uint16_t WARDRIFT_PORT;
+
 inline void tlsMaybeSetBufferSizes(WiFiClientSecure&, int, int) {}

@@ -283,10 +283,22 @@ static void writeLogLine(const String& line) {
   }
 }
 
-void appendWigleRow(const String& mac, const String& ssid, const String& auth,
+bool appendWigleRow(const String& mac, const String& ssid, const String& auth,
                     const String& firstSeen, int channel, int rssi,
                     double lat, double lon, double altM, double accM) {
-  if (!sdOk || !logFile) return;
+  if (!sdOk || !logFile) return false;
+
+  // Network whitelist: skip logging any SSID the user has explicitly listed
+  // (e.g. their own home/work network). Exact, case-sensitive match against
+  // up to 10 configured entries; empty slots are never matched, so a blank
+  // SSID (hidden network) is never accidentally filtered by an unused slot.
+  if (ssid.length() > 0) {
+    for (uint8_t i = 0; i < 10; i++) {
+      if (cfg.ssidWhitelist[i].length() > 0 && cfg.ssidWhitelist[i] == ssid) {
+        return false;
+      }
+    }
+  }
 
   String safeSsid = ssid;
   safeSsid.replace("\"", "\"\"");
@@ -312,6 +324,7 @@ void appendWigleRow(const String& mac, const String& ssid, const String& auth,
   line += ",,WIFI"; // RCOIs (empty), MfgrId (empty), Type
 
   writeLogLine(line);
+  return true;
 }
 
 // BLE observation row. Matches the WigleWifi-1.6 BLE contract WDGoWars accepts:

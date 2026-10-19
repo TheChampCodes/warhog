@@ -96,7 +96,7 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
   }
 
   /* ---- Inputs ---- */
-  input,select{
+  input,select,textarea{
     padding:9px 12px;
     border-radius:8px;
     border:1px solid var(--inputBorder);
@@ -104,14 +104,16 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
     background:var(--input);
     color:var(--text);
     font-size:14px;
+    font-family:inherit;
     transition:border-color .15s,box-shadow .15s;
     outline:none;
   }
-  input:focus,select:focus{
+  input:focus,select:focus,textarea:focus{
     border-color:var(--accent);
     box-shadow:0 0 0 3px var(--accentDim);
   }
-  input::placeholder{color:var(--muted);opacity:.6}
+  input::placeholder,textarea::placeholder{color:var(--muted);opacity:.6}
+  textarea{resize:vertical;line-height:1.4}
 
   label{
     display:block;
@@ -335,6 +337,16 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
         <button class="btn-primary" onclick="wdgwarsUploadAll()">Upload All CSVs</button>
       </div>
     </div>
+
+    <!-- Wardrift section -->
+    <div class="inner-card">
+      <h4>Wardrift</h4>
+      <div id="wardriftMsg" class="muted" style="font-size:14px">—</div>
+      <div class="row mt-sm">
+        <button onclick="wardriftTest()">Test API Key</button>
+        <button class="btn-primary" onclick="wardriftUploadAll()">Upload All CSVs</button>
+      </div>
+    </div>
   </div>
 
   <!-- ============ CONFIG ============ -->
@@ -350,6 +362,11 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
         <label>WDGoWars API Key</label>
         <input id="wdgwarsApiKey" placeholder="API key from wdgwars.pl/profile (leave empty to disable)">
         <a href="https://wdgwars.pl/profile/" target="_blank" rel="noopener" style="font-size:12px;margin-top:5px;display:inline-block">&rarr; Get your API Key here</a>
+      </div>
+      <div>
+        <label>Wardrift API Key</label>
+        <input id="wardriftApiKey" placeholder="API key (wdk_...) from wardrift.net (leave empty to disable)" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false">
+        <a href="https://wardrift.net" target="_blank" rel="noopener" style="font-size:12px;margin-top:5px;display:inline-block">&rarr; Get your API Key at wardrift.net</a>
       </div>
       <div>
         <label>Device Name</label>
@@ -415,12 +432,26 @@ static const char INDEX_HTML[] PROGMEM = R"HTML(
           <option value="true">Rotated 180&deg;</option>
         </select>
       </div>
+      <div><label>Upload When Home Network Seen (while wardriving)</label>
+        <select id="uploadOnNetworkSeen" onchange="syncUploadOnNetworkSeen()">
+          <option value="true">Enabled &mdash; Connect &amp; Upload Automatically (default)</option>
+          <option value="false">Disabled</option>
+        </select>
+      </div>
       <div><label>Auto-Start Wardriving After Uploads (requires reboot)</label>
-        <select id="autoStartAfterUpload">
+        <select id="autoStartAfterUpload" onchange="syncUploadOnNetworkSeen()">
           <option value="false">Disabled &mdash; Stay on Home Wi-Fi (default)</option>
           <option value="true">Enabled &mdash; Disconnect and Wardrive Immediately</option>
         </select>
       </div>
+    </div>
+    <p style="margin-top:8px;font-size:12px;color:var(--muted)">
+      <strong>Upload When Home Network Seen</strong> and <strong>Auto-Start Wardriving After Uploads</strong> are mutually exclusive &mdash; enabling Auto-Start always disables Upload When Home Network Seen.
+    </p>
+    <div class="mt-md">
+      <label>Network Whitelist &mdash; SSIDs to Scan but Never Log (up to 10, one per line)</label>
+      <textarea id="ssidWhitelist" rows="4" placeholder="e.g.&#10;MyHomeNetwork&#10;MyOfficeWifi"></textarea>
+      <p style="margin:6px 0 0;font-size:12px;color:var(--muted)">Exact, case-sensitive match. These networks still count toward Found totals but are never written to the CSV log.</p>
     </div>
     <div class="row mt-md">
       <button class="btn-primary" onclick="saveCfg()">Save Config</button>
@@ -553,7 +584,7 @@ async function loadStatus(){
     setText('vApSsid',j?.config?.wardriverSsid||'\u2014');
 
     // Fill config form — skip masked/secret values
-    for(const k of ['wigleBasicToken','wdgwarsApiKey','deviceName','board','gpsBaud','homeSsid','wardriverSsid','wardriverPsk','scanMode','bluetoothScan','biscuitReport','speedUnits','battPin','batteryTest','maxBootUploads','meshModeOnBoot','rotateScreen180','autoStartAfterUpload']){
+    for(const k of ['wigleBasicToken','wdgwarsApiKey','wardriftApiKey','deviceName','board','gpsBaud','homeSsid','wardriverSsid','wardriverPsk','scanMode','bluetoothScan','biscuitReport','speedUnits','battPin','batteryTest','maxBootUploads','meshModeOnBoot','rotateScreen180','autoStartAfterUpload','uploadOnNetworkSeen']){
       if(j.config&&(k in j.config)){
         const v=String(j.config[k]);
         if(maskedKeys.has(k)&&(v===''||v==='(set)'))continue;
@@ -561,7 +592,35 @@ async function loadStatus(){
         if(el)el.value=v;
       }
     }
+
+    // Network whitelist: join the 10 flat ssidWhitelistN keys into one
+    // newline-separated textarea value (skipping empty/unused slots).
+    if(j.config){
+      const lines=[];
+      for(let i=1;i<=10;i++){
+        const v=j.config['ssidWhitelist'+i];
+        if(v)lines.push(v);
+      }
+      const wlEl=$('ssidWhitelist');
+      if(wlEl)wlEl.value=lines.join('\n');
+    }
+
+    syncUploadOnNetworkSeen();
   }catch(e){console.error('loadStatus',e)}
+}
+
+/* ---- Mutual exclusion: Upload On Network Seen vs Auto-Start After Upload ----
+   The two features can never both be active. Auto-Start wins: enabling it
+   forces Upload On Network Seen off and greys it out client-side; the
+   firmware enforces the same rule server-side on load/save regardless of
+   what the client sends. */
+function syncUploadOnNetworkSeen(){
+  const auto=$('autoStartAfterUpload');
+  const uns=$('uploadOnNetworkSeen');
+  if(!auto||!uns)return;
+  const autoOn=auto.value==='true';
+  uns.disabled=autoOn;
+  if(autoOn)uns.value='false';
 }
 
 /* ---- Files ---- */
@@ -634,7 +693,7 @@ async function deleteAllLogs(){
 
 /* ---- Shared save logic used by both Save and Save+Reboot ---- */
 async function doSave(){
-  const keys=['board','wigleBasicToken','wdgwarsApiKey','deviceName','gpsBaud','homeSsid','homePsk','wardriverSsid','wardriverPsk','scanMode','bluetoothScan','biscuitReport','speedUnits','battPin','batteryTest','maxBootUploads','meshModeOnBoot','rotateScreen180','autoStartAfterUpload'];
+  const keys=['board','wigleBasicToken','wdgwarsApiKey','wardriftApiKey','deviceName','gpsBaud','homeSsid','homePsk','wardriverSsid','wardriverPsk','scanMode','bluetoothScan','biscuitReport','speedUnits','battPin','batteryTest','maxBootUploads','meshModeOnBoot','rotateScreen180','autoStartAfterUpload','uploadOnNetworkSeen'];
   let body='# Saved from Web UI\n# key=value\n';
   for(const k of keys){
     const el=$(k);
@@ -642,6 +701,17 @@ async function doSave(){
     if(maskedKeys.has(k)&&v==='')continue;
     body+=k+'='+String(v).replace(/\r?\n/g,' ')+'\n';
   }
+
+  // Network whitelist: split the textarea into non-empty, trimmed lines
+  // (capped at 10), then always emit all 10 ssidWhitelistN keys -- including
+  // blank ones -- so removing an entry actually clears that slot on save
+  // instead of leaving a stale value behind.
+  const wlEl=$('ssidWhitelist');
+  const wlLines=(wlEl?wlEl.value:'').split(/\r?\n/).map(s=>s.trim()).filter(s=>s.length>0).slice(0,10);
+  for(let i=0;i<10;i++){
+    body+='ssidWhitelist'+(i+1)+'='+(wlLines[i]||'')+'\n';
+  }
+
   const r=await fetch('/saveConfig',{method:'POST',headers:{'Content-Type':'text/plain'},body});
   await loadStatus();
   return r;
@@ -704,6 +774,34 @@ async function wdgwarsUploadAll(){
       setWdgwarsMsg(msg,j.ok?'ok-text':'bad-text');
     }
   }catch(e){setWdgwarsMsg('Upload request failed','bad-text')}
+  await loadFiles();
+}
+
+function setWardriftMsg(t,cls){
+  const el=$('wardriftMsg');
+  el.textContent=t;
+  el.className=cls||'muted';
+}
+
+async function wardriftTest(){
+  setWardriftMsg('Testing key…');
+  try{
+    const r=await fetch('/wardrift/test',{method:'POST'});
+    const j=await r.json().catch(()=>({ok:false,message:'Bad response'}));
+    setWardriftMsg(j.message||(j.ok?'Key valid':'Key invalid'),j.ok?'ok-text':'bad-text');
+  }catch(e){setWardriftMsg('Request failed','bad-text')}
+}
+
+async function wardriftUploadAll(){
+  setWardriftMsg('Uploading all CSVs to Wardrift…');
+  try{
+    const r=await fetch('/wardrift/uploadAll',{method:'POST'});
+    const j=await r.json().catch(()=>null);
+    if(j){
+      const msg=j.message||(j.ok?j.uploaded+' file(s) uploaded':'Upload failed');
+      setWardriftMsg(msg,j.ok?'ok-text':'bad-text');
+    }
+  }catch(e){setWardriftMsg('Upload request failed','bad-text')}
   await loadFiles();
 }
 
@@ -850,7 +948,9 @@ static void handleStatus() {
   // Heap allocation: StaticJsonDocument<N> puts N bytes on the Arduino loop
   // task stack (8192 bytes). Even 1024 bytes plus WebServer call chain overhead
   // risks a stack overflow.  DynamicJsonDocument allocates from the heap instead.
-  DynamicJsonDocument doc(2048);
+  // Bumped from 2048 -> 3072 to leave headroom for the 10 ssidWhitelistN
+  // string fields (each up to a full 32-byte SSID) added to "config".
+  DynamicJsonDocument doc(3072);
 
   bool allowScan = scanningEnabled && sdOk && (userScanOverride || !autoPaused);
   doc["scanningEnabled"] = scanningEnabled;
@@ -905,6 +1005,7 @@ static void handleStatus() {
   JsonObject c = doc.createNestedObject("config");
   c["wigleBasicToken"] = cfg.wigleBasicToken;
   c["wdgwarsApiKey"]   = cfg.wdgwarsApiKey;
+  c["wardriftApiKey"]  = cfg.wardriftApiKey;
   c["homeSsid"] = cfg.homeSsid;
   c["homePsk"] = cfg.homePsk.length() ? "(set)" : "";
   c["wardriverSsid"] = cfg.wardriverSsid;
@@ -922,6 +1023,10 @@ static void handleStatus() {
   c["meshModeOnBoot"] = cfg.meshModeOnBoot;
   c["rotateScreen180"] = cfg.rotateScreen180;
   c["autoStartAfterUpload"] = cfg.autoStartAfterUpload;
+  c["uploadOnNetworkSeen"] = cfg.uploadOnNetworkSeen;
+  for (uint8_t i = 0; i < 10; i++) {
+    c[String("ssidWhitelist") + String(i + 1)] = cfg.ssidWhitelist[i];
+  }
 
   String output;
   serializeJson(doc, output);
@@ -1106,6 +1211,8 @@ static void handleSaveConfig() {
     return;
   }
 
+  cfgEnforceMutualExclusion();
+
   Serial.println("[CFG] Updated config from Web UI (in-RAM). Saving to SD...");
   bool ok = saveConfigToSD();
   server.send(ok ? 200 : 500, "text/plain", ok ? "OK" : "FAIL");
@@ -1181,6 +1288,48 @@ static void handleWdgwarsUploadAll() {
   server.send(200, "application/json", out);
 }
 
+static void handleWardriftTest() {
+  if (WiFi.status() != WL_CONNECTED) {
+    server.send(400, "application/json",
+                "{\"ok\":false,\"message\":\"STA WiFi not connected\"}");
+    return;
+  }
+  if (cfg.wardriftApiKey.length() < 8) {
+    server.send(400, "application/json",
+                "{\"ok\":false,\"message\":\"No API key configured\"}");
+    return;
+  }
+
+  bool ok = wardriftTestKey();
+
+  DynamicJsonDocument doc(256);
+  doc["ok"]      = ok;
+  doc["message"] = uploadLastResult;
+
+  String out;
+  serializeJson(doc, out);
+  server.send(ok ? 200 : 400, "application/json", out);
+}
+
+static void handleWardriftUploadAll() {
+  if (!sdOk) { server.send(500, "text/plain", "SD not available"); return; }
+  if (WiFi.status() != WL_CONNECTED) { server.send(400, "text/plain", "STA WiFi not connected"); return; }
+  if (cfg.wardriftApiKey.length() < 8) { server.send(400, "text/plain", "No API key configured"); return; }
+
+  // Pass -1 explicitly: web-triggered uploads bypass the maxBootUploads cap.
+  uint32_t okCount = uploadAllCsvsToWardrift(-1);
+
+  DynamicJsonDocument doc(256);
+  doc["ok"]       = (okCount > 0);
+  doc["uploaded"] = okCount;
+  doc["total"]    = uploadTotalFiles;
+  doc["message"]  = uploadLastResult;
+
+  String out;
+  serializeJson(doc, out);
+  server.send(200, "application/json", out);
+}
+
 // Connect to home Wi-Fi (AP stays up) and upload all CSVs. Needed because the
 // device can't reach the internet while it's only hosting the AP web UI.
 static void handleUploadViaHome() {
@@ -1242,6 +1391,14 @@ static void handleWigleUploadOne() {
   String path = server.arg("name");
   if (!SD.exists(path)) { server.send(404, "text/plain", "Not found"); return; }
 
+  bool hasWigle    = cfg.wigleBasicToken.length() >= 8;
+  bool hasWdg      = cfg.wdgwarsApiKey.length()   >= 8;
+  bool hasWardrift = cfg.wardriftApiKey.length()  >= 8;
+  if (!hasWigle && !hasWdg && !hasWardrift) {
+    server.send(400, "text/plain", "No WiGLE token, WDGoWars API key, or Wardrift token configured");
+    return;
+  }
+
   uploading = true;
   uploadPausedScanWasEnabled = scanningEnabled;
   scanningEnabled = false;
@@ -1251,7 +1408,36 @@ static void handleWigleUploadOne() {
   uploadCurrentFile = path;
   updateOLED(0);
 
-  bool ok = uploadFileToWigle(path);
+  // Mirrors the batch upload flow (uploadAllCsvsToWigle): try WDGoWars, then
+  // Wardrift, then WiGLE (whichever are configured), and move the file to
+  // /uploaded if ANY succeed. Previously this only ever attempted WiGLE, so
+  // a file uploaded via this per-file button never moved out of /logs when
+  // only a WDGoWars API key was configured (no WiGLE token).
+  wigleLastHttpCode = 0;  // avoid reporting a stale code if WiGLE isn't attempted below
+  bool wdgOk = false;
+  if (hasWdg) {
+    uploadTargetName = "WDGW UL";
+    updateOLED(0);
+    wdgOk = uploadFileToWdgwars(path);
+    if (hasWardrift || hasWigle) delay(1500);  // brief settle between TLS sessions
+  }
+  String wdgResult = uploadLastResult;  // preserve before the next call overwrites it
+
+  bool wardriftOk = false;
+  if (hasWardrift) {
+    uploadTargetName = "Wardrift UL";
+    updateOLED(0);
+    wardriftOk = uploadFileToWardrift(path);
+    if (hasWigle) delay(1500);  // brief settle between TLS sessions
+  }
+  String wardriftResult = uploadLastResult;  // preserve before uploadFileToWigle overwrites it
+
+  bool wigleOk = false;
+  if (hasWigle) {
+    uploadTargetName = "WiGLE UL";
+    updateOLED(0);
+    wigleOk = uploadFileToWigle(path);
+  }
 
   uploadDoneFiles = 1;
   updateOLED(0);
@@ -1259,17 +1445,34 @@ static void handleWigleUploadOne() {
   uploading = false;
   scanningEnabled = uploadPausedScanWasEnabled;
   uploadCurrentFile = "";
+  uploadTargetName = "";
   updateOLED(0);
 
+  bool ok = wigleOk || wdgOk || wardriftOk;
   if (ok) {
     moveToUploaded(path);
     // History will auto-refresh when user next accesses /files.json
   }
 
+  // Combine all attempted services' results into the message
+  int attempted = (hasWdg ? 1 : 0) + (hasWardrift ? 1 : 0) + (hasWigle ? 1 : 0);
+  String message = uploadLastResult;
+  if (attempted > 1) {
+    std::vector<String> parts;
+    if (hasWdg)      parts.push_back("WDGW: " + wdgResult);
+    if (hasWardrift) parts.push_back("Wardrift: " + wardriftResult);
+    if (hasWigle)    parts.push_back("WiGLE: " + uploadLastResult);
+    message = "";
+    for (size_t i = 0; i < parts.size(); i++) {
+      if (i) message += " | ";
+      message += parts[i];
+    }
+  }
+
   DynamicJsonDocument doc(384);
   doc["ok"] = ok;
   doc["httpCode"] = wigleLastHttpCode;
-  doc["message"] = uploadLastResult;
+  doc["message"] = message;
 
   String out;
   serializeJson(doc, out);
@@ -1415,6 +1618,8 @@ void startWebServer() {
   server.on("/wigle/upload",    HTTP_POST, handleWigleUploadOne);
   server.on("/wdgwars/test",      HTTP_POST, handleWdgwarsTest);
   server.on("/wdgwars/uploadAll", HTTP_POST, handleWdgwarsUploadAll);
+  server.on("/wardrift/test",      HTTP_POST, handleWardriftTest);
+  server.on("/wardrift/uploadAll", HTTP_POST, handleWardriftUploadAll);
 
   server.begin();
   Serial.println("[WEB] Server started");

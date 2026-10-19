@@ -49,3 +49,7 @@ int wigleLastHttpCode = 0;
 
 const char* WIGLE_HOST = "api.wigle.net";
 const uint16_t WIGLE_PORT = 443;
+
+// ---- Wardrift constants ----
+const char* WARDRIFT_HOST = "wardrift.net";
+const uint16_t WARDRIFT_PORT = 443;

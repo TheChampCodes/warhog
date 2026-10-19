@@ -334,6 +334,7 @@ void loop() {
 
   if (!meshNodeActive && !meshCoreActive && !radioIdle) {
     handleStaTransitions();
+    checkHomeNetworkReturn();
   }
 
   wdgwarsServicePendingJobs();
