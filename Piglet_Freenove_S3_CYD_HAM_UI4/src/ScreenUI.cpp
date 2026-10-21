@@ -54,6 +54,16 @@ const char* const NAV_LABELS[] = { "HOME", "FILE", "SYS", "MRDR" };
 constexpr int NAV_SLOTS = 4;
 constexpr int NAV_SLOT_W = SCREEN_W / NAV_SLOTS;
 
+// NODES page (Core mode) worker-list layout — shared by draw and hit-test so
+// the tap targets always line up with what's drawn. All are unscrolled
+// content-space Y (the coordinate handleTap passes to the page tap handlers).
+constexpr int NODE_METRIC_TOP   = 60;
+constexpr int NODE_PROFILES_TOP = 112;   // "PROFILES" bar
+constexpr int NODE_PROFILES_H   = 26;
+constexpr int NODE_LIST_TOP     = 146;   // first worker card
+constexpr int NODE_CARD_H       = 62;
+constexpr int NODE_CARD_PITCH   = 69;
+
 inline uint16_t lerp565(uint16_t a, uint16_t b, float t) {
   if (t < 0) t = 0; else if (t > 1) t = 1;
   const int ar = (a >> 11) & 0x1F, ag = (a >> 5) & 0x3F, ab = a & 0x1F;
@@ -642,6 +652,13 @@ void ScreenUI::handleHomeTap(int16_t x, int16_t contentY) {
     }
     return;
   }
+
+  // In Core mode the STATUS card drills into the cluster view (node list +
+  // per-node sub-cluster editor + saved profiles).
+  if (meshCoreActive && contentY >= 56 && contentY <= 106) {
+    setPage(Page::Nodes);
+    return;
+  }
   if (contentY >= 126 && contentY <= 145 && x >= 13) {
     const int i = (x - 13) / 73;
     if (i == 0)      cfg.scan24 = !cfg.scan24;
@@ -653,11 +670,98 @@ void ScreenUI::handleHomeTap(int16_t x, int16_t contentY) {
 }
 
 void ScreenUI::handleNodesTap(int16_t x, int16_t contentY) {
-  if (contentY < 8 || contentY > 45) return;
-  if (x < 68) enterSoloMode();
-  else if (x < 122) enterCoreUiMode();
-  else if (x < 176) enterNodeUiMode();
-  else enterRadioIdleMode();
+  if (meshCoreActive && profilesView) { handleProfilesTap(x, contentY); return; }
+  if (meshCoreActive && nodeDetail)   { handleNodeDetailTap(x, contentY); return; }
+
+  // Role selector (top card).
+  if (contentY >= 8 && contentY <= 45) {
+    if (x < 68) enterSoloMode();
+    else if (x < 122) enterCoreUiMode();
+    else if (x < 176) enterNodeUiMode();
+    else enterRadioIdleMode();
+    return;
+  }
+
+  if (!meshCoreActive) return;
+
+  // PROFILES bar → saved-profile manager.
+  if (contentY >= NODE_PROFILES_TOP && contentY <= NODE_PROFILES_TOP + NODE_PROFILES_H) {
+    profilesView = true;
+    activeScroll() = 0;
+    redraw = true;
+    return;
+  }
+
+  // Worker cards → per-node sub-cluster editor. The nth visible card maps to
+  // the nth active node (cards are only drawn for active nodes).
+  if (contentY >= NODE_LIST_TOP) {
+    const int rel = contentY - NODE_LIST_TOP;
+    if (rel % NODE_CARD_PITCH <= NODE_CARD_H) {
+      const int row = rel / NODE_CARD_PITCH;
+      int seen = 0;
+      for (int i = 0; i < CORE_MAX_NODES; ++i) {
+        if (!coreNodes[i].active) continue;
+        if (seen == row) {
+          selectedNode = i;
+          nodeDetail = true;
+          activeScroll() = 0;
+          redraw = true;
+          return;
+        }
+        seen++;
+      }
+    }
+  }
+}
+
+void ScreenUI::handleNodeDetailTap(int16_t x, int16_t contentY) {
+  if (contentY >= 4 && contentY <= 30 && x <= 82) {   // back
+    nodeDetail = false;
+    selectedNode = -1;
+    redraw = true;
+    return;
+  }
+  if (selectedNode < 0 || selectedNode >= CORE_MAX_NODES ||
+      !coreNodes[selectedNode].active) return;
+
+  // Sub-cluster -/+  (buttons drawn at y 122..162).
+  if (contentY >= 122 && contentY <= 162) {
+    const uint8_t g = coreNodes[selectedNode].group;
+    if (x >= 16 && x <= 64) {               // minus
+      if (g > 1) coreSetNodeGroup(selectedNode, g - 1);
+    } else if (x >= 176 && x <= 224) {      // plus
+      if (g < CORE_MAX_GROUPS) coreSetNodeGroup(selectedNode, g + 1);
+    }
+    redraw = true;
+  }
+}
+
+void ScreenUI::handleProfilesTap(int16_t x, int16_t contentY) {
+  if (contentY >= 4 && contentY <= 30 && x <= 82) {   // back
+    profilesView = false;
+    redraw = true;
+    return;
+  }
+  // DEFAULT → apply even band-aware split to everyone.
+  if (contentY >= 46 && contentY <= 70 && x >= 158 && x <= 226) {
+    meshApplyDefault();
+    redraw = true;
+    return;
+  }
+  // Custom slot buttons.
+  for (uint8_t i = 0; i < MESH_NUM_PROFILES; ++i) {
+    const int by = 88 + i * 58 + 28;
+    if (contentY < by || contentY > by + 20) continue;
+    if (meshProfileUsed(i)) {
+      if (x >= 14 && x <= 80)        meshApplyProfile(i);
+      else if (x >= 86 && x <= 152)  openProfileNameEditor(i);  // overwrite (rename + recapture)
+      else if (x >= 158 && x <= 224) meshDeleteProfile(i);
+    } else if (x >= 14 && x <= 80) {
+      openProfileNameEditor(i);                                 // save current → new profile
+    }
+    redraw = true;
+    return;
+  }
 }
 
 void ScreenUI::handleFilesTap(int16_t x, int16_t contentY) {
@@ -741,15 +845,26 @@ void ScreenUI::persistConfig() {
 
 void ScreenUI::openEditor(int settingIndex) {
   editing = true;
+  editTarget = EditTarget::Setting;
   editSetting = settingIndex;
   editBuffer = settingValue(SETTINGS[settingIndex].key);
   editLayer = 0;
   redraw = true;
 }
 
+void ScreenUI::openProfileNameEditor(int slot) {
+  editing = true;
+  editTarget = EditTarget::ProfileName;
+  editProfileSlot = slot;
+  editBuffer = meshProfileUsed(slot) ? String(meshProfileName(slot)) : String("");
+  editLayer = 0;
+  redraw = true;
+}
+
 void ScreenUI::handleEditorTap(int16_t x, int16_t y) {
-  const SettingDef& def = SETTINGS[editSetting];
-  const bool numeric = def.kind == SettingKind::Number;
+  const bool profileName = (editTarget == EditTarget::ProfileName);
+  const SettingDef& def = SETTINGS[profileName ? 0 : editSetting];
+  const bool numeric = !profileName && def.kind == SettingKind::Number;
   redraw = true;
 
   if (y >= ED_KEYS_Y && y < ED_BOTTOM_Y) {
@@ -772,7 +887,11 @@ void ScreenUI::handleEditorTap(int16_t x, int16_t y) {
     case 5: {
       String value = editBuffer;
       value.trim();
-      if (!(numeric && !value.length())) {
+      if (profileName) {
+        meshSaveProfile(editProfileSlot, value.c_str());  // persists to SD itself
+        lastSaveOk = true;
+        profileSaveTarget = -1;
+      } else if (!(numeric && !value.length())) {
         cfgAssignKV(def.key, value);
         persistConfig();
       }
@@ -795,6 +914,11 @@ void ScreenUI::setPage(Page next) {
     csvPreview = false;
     csvRowOffset = 0;
     csvColumns = CsvColumns::Network;
+  }
+  if (page == Page::Nodes && next != Page::Nodes) {
+    nodeDetail = false;
+    profilesView = false;
+    selectedNode = -1;
   }
   if (next != Page::Marauder) attackScreen = AttackScreen::Menu;
   page = next;
@@ -895,10 +1019,11 @@ int ScreenUI::contentHeightForPage() const {
     case Page::Home: return 609;
     case Page::Nodes: {
       if (meshCoreActive) {
+        if (nodeDetail || profilesView) return CONTENT_H;  // sub-views don't scroll
         int active = 0;
         for (int i = 0; i < CORE_MAX_NODES; ++i)
           if (coreNodes[i].active) active++;
-        return 145 + max(1, active) * 69;
+        return NODE_LIST_TOP + max(1, active) * NODE_CARD_PITCH + 10;
       }
       return 300;
     }
@@ -1165,6 +1290,12 @@ void ScreenUI::drawHome() {
     frame.setTextColor(C_MUTED, C_CARD);
     frame.setCursor(13, y + 36);
     frame.print(l2);
+    if (meshCoreActive) {   // hint: tap to open the cluster view
+      frame.setTextDatum(MR_DATUM);
+      frame.setTextColor(C_ACCENT, C_CARD);
+      frame.drawString("CLUSTER >", 228, y + 10, 1);
+      frame.setTextDatum(TL_DATUM);
+    }
   }
   y += 56;
 
@@ -1234,7 +1365,41 @@ void ScreenUI::drawHome() {
   drawGpsSection(y);
 }
 
+// Helper: fill `out` with a short human list of the channels a node scans,
+// e.g. "1,6,11,36-48". Collapses runs of adjacent JCMK_CHANNELS entries.
+static void formatNodeChannels(const CoreNodeInfo& nd, char* out, size_t outSize) {
+  if (nd.chanCount == 0) { snprintf(out, outSize, "(pending)"); return; }
+  size_t o = 0;
+  out[0] = '\0';
+  int i = 0;
+  while (i < nd.chanCount) {
+    int runStart = nd.chans[i];
+    int j = i;
+    // extend run while channels are consecutive entries of the JCMK table
+    while (j + 1 < nd.chanCount) {
+      // find table index of chans[j] and chans[j+1]
+      int a = -1, b = -1;
+      for (int k = 0; k < JCMK_NUM_CHANNELS; k++) {
+        if (JCMK_CHANNELS[k] == nd.chans[j])     a = k;
+        if (JCMK_CHANNELS[k] == nd.chans[j + 1]) b = k;
+      }
+      if (a >= 0 && b == a + 1) j++; else break;
+    }
+    int runEnd = nd.chans[j];
+    int n = (runStart == runEnd)
+          ? snprintf(out + o, outSize - o, "%s%d", o ? "," : "", runStart)
+          : snprintf(out + o, outSize - o, "%s%d-%d", o ? "," : "", runStart, runEnd);
+    if (n < 0 || (size_t)n >= outSize - o) { break; }
+    o += n;
+    i = j + 1;
+  }
+}
+
 void ScreenUI::drawNodes() {
+  // Core-mode sub-views take over the whole page.
+  if (meshCoreActive && profilesView) { drawProfilesView(); return; }
+  if (meshCoreActive && nodeDetail)   { drawNodeDetail();   return; }
+
   const int s = activeScroll();
   int y = 8 - s;
 
@@ -1259,40 +1424,68 @@ void ScreenUI::drawNodes() {
   drawMetric(8, y, 108, "CONNECTED", String(coreNodeCount), C_ACCENT);
   drawMetric(124, y, 108, "RECORDS RX", String(coreRecordsRx), C_TEXT);
 
-  y += 65;
-
   if (meshCoreActive) {
+    // PROFILES bar — opens the saved-profile manager.
+    const int py = NODE_PROFILES_TOP - s;
+    frame.fillRoundRect(8, py, 224, NODE_PROFILES_H, 6, C_INPUT);
+    frame.drawRoundRect(8, py, 224, NODE_PROFILES_H, 6, C_BORDER);
+    frame.setTextDatum(ML_DATUM);
+    frame.setTextColor(C_ACCENT, C_INPUT);
+    frame.drawString("PROFILES", 18, py + NODE_PROFILES_H / 2, 1);
+    frame.setTextColor(C_MUTED, C_INPUT);
+    frame.setTextDatum(MR_DATUM);
+    frame.drawString("tap to manage", 224, py + NODE_PROFILES_H / 2, 1);
+    frame.setTextDatum(TL_DATUM);
+
     int shown = 0;
     for (int i = 0; i < CORE_MAX_NODES; ++i) {
       if (!coreNodes[i].active) continue;
-      drawCard(8, y, 224, 62, "WORKER");
+      const int cardY = NODE_LIST_TOP + shown * NODE_CARD_PITCH - s;
+      drawCard(8, cardY, 224, NODE_CARD_H, "WORKER");
       char mac[18];
       snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
                coreNodes[i].mac[0], coreNodes[i].mac[1], coreNodes[i].mac[2],
                coreNodes[i].mac[3], coreNodes[i].mac[4], coreNodes[i].mac[5]);
       frame.setTextColor(C_TEXT, C_CARD);
-      frame.setCursor(16, y + 23);
+      frame.setCursor(16, cardY + 23);
       frame.print(mac);
+
+      // Sub-cluster tag (top-right), colour-keyed so groups are easy to scan.
+      char tag[8];
+      snprintf(tag, sizeof(tag), "CL%u", (unsigned)coreNodes[i].group);
+      const uint16_t tagBg = coreNodes[i].group == 1 ? C_INPUT : C_ACCENT;
+      const uint16_t tagFg = coreNodes[i].group == 1 ? C_MUTED : C_BG;
+      frame.fillRoundRect(186, cardY + 6, 40, 16, 4, tagBg);
+      frame.setTextDatum(MC_DATUM);
+      frame.setTextColor(tagFg, tagBg);
+      frame.drawString(tag, 206, cardY + 14, 1);
+      frame.setTextDatum(TL_DATUM);
+
       frame.setTextColor(C_MUTED, C_CARD);
-      frame.setCursor(16, y + 40);
-      const int start = coreNodes[i].startIdx < JCMK_NUM_CHANNELS ? JCMK_CHANNELS[coreNodes[i].startIdx] : 0;
-      const int end = coreNodes[i].endIdx < JCMK_NUM_CHANNELS ? JCMK_CHANNELS[coreNodes[i].endIdx] : 0;
-      frame.printf("CH %d-%d  RX %lu  HB %lus%s", start, end,
+      frame.setCursor(16, cardY + 40);
+      char chans[40];
+      formatNodeChannels(coreNodes[i], chans, sizeof(chans));
+      frame.printf("%s  RX %lu  %lus%s", chans,
                    static_cast<unsigned long>(coreNodes[i].recordsRx),
                    static_cast<unsigned long>((millis() - coreNodes[i].lastHbMs) / 1000),
-                   coreNodes[i].isBiscuit ? "  B" : "");
-      y += 69;
+                   coreNodes[i].isBiscuit ? " B" : "");
       shown++;
     }
     if (!shown) {
-      drawCard(8, y, 224, 74, "CORE LISTENING");
+      const int cardY = NODE_LIST_TOP - s;
+      drawCard(8, cardY, 224, 74, "CORE LISTENING");
       frame.setTextColor(C_MUTED, C_CARD);
-      frame.setCursor(16, y + 27);
+      frame.setCursor(16, cardY + 27);
       frame.print("0 workers connected");
-      frame.setCursor(16, y + 44);
+      frame.setCursor(16, cardY + 44);
       frame.printf("ESP-NOW admin channel %u", JCMK_ESPNOW_CH);
     }
-  } else if (meshNodeActive) {
+    return;
+  }
+
+  y += 65;
+
+  if (meshNodeActive) {
     drawCard(8, y, 224, 100, "NODE STATUS");
     frame.setTextColor(C_TEXT, C_CARD);
     frame.setCursor(16, y + 25);
@@ -1316,6 +1509,135 @@ void ScreenUI::drawNodes() {
     frame.print("Core and Node modes are ready");
     frame.setCursor(16, y + 63);
     frame.print("Select a role above");
+  }
+}
+
+// Shared back bar for the Core-mode sub-views; returns nothing (fixed layout).
+static void drawSubViewBackBar(GfxSprite& frame, const char* title) {
+  frame.fillRoundRect(8, 4, 74, 26, 6, C_INPUT);
+  frame.drawRoundRect(8, 4, 74, 26, 6, C_BORDER);
+  frame.setTextDatum(MC_DATUM);
+  frame.setTextColor(C_ACCENT, C_INPUT);
+  frame.drawString("< BACK", 45, 17, 1);
+  frame.setTextColor(C_TEXT, C_BG);
+  frame.drawString(title, 158, 17, 2);
+  frame.setTextDatum(TL_DATUM);
+}
+
+// Per-node editor: shows the node and lets the user move it between
+// sub-clusters with  [-] CL n [+] . The Core re-splits channels immediately.
+void ScreenUI::drawNodeDetail() {
+  drawSubViewBackBar(frame, "NODE");
+
+  if (selectedNode < 0 || selectedNode >= CORE_MAX_NODES ||
+      !coreNodes[selectedNode].active) {
+    drawCard(8, 40, 224, 60, "NODE");
+    frame.setTextColor(C_MUTED, C_CARD);
+    frame.setCursor(16, 40 + 34);
+    frame.print("Node disconnected");
+    return;
+  }
+
+  const CoreNodeInfo& nd = coreNodes[selectedNode];
+
+  // Identity card.
+  drawCard(8, 36, 224, 60, "WORKER");
+  char mac[18];
+  snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",
+           nd.mac[0], nd.mac[1], nd.mac[2], nd.mac[3], nd.mac[4], nd.mac[5]);
+  frame.setTextColor(C_TEXT, C_CARD);
+  frame.setCursor(16, 36 + 24);
+  frame.print(mac);
+  frame.setTextColor(C_MUTED, C_CARD);
+  frame.setCursor(16, 36 + 44);
+  frame.printf("%s  RX %lu  %lus",
+               nd.band24Only ? "2.4 GHz" : "2.4 + 5 GHz",
+               static_cast<unsigned long>(nd.recordsRx),
+               static_cast<unsigned long>((millis() - nd.lastHbMs) / 1000));
+
+  // Sub-cluster selector.
+  drawCard(8, 100, 224, 74, "SUB-CLUSTER");
+  frame.fillRoundRect(16, 122, 48, 40, 6, C_INPUT);
+  frame.fillRoundRect(176, 122, 48, 40, 6, C_INPUT);
+  frame.setTextDatum(MC_DATUM);
+  frame.setTextColor(C_ACCENT, C_INPUT);
+  frame.drawString("-", 40, 142, 2);
+  frame.drawString("+", 200, 142, 2);
+  char cl[8];
+  snprintf(cl, sizeof(cl), "CL %u", (unsigned)nd.group);
+  frame.setTextColor(C_TEXT, C_CARD);
+  frame.setTextSize(2);
+  frame.drawString(cl, 120, 140, 1);
+  frame.setTextSize(1);
+  frame.setTextColor(C_MUTED, C_CARD);
+  frame.drawString(String(coreGroupMemberCount(nd.group)) + " node(s) in this cluster",
+                   120, 165, 1);
+  frame.setTextDatum(TL_DATUM);
+
+  // Channels this node is currently scanning.
+  drawCard(8, 178, 224, 50, "SCANNING");
+  char chans[40];
+  formatNodeChannels(nd, chans, sizeof(chans));
+  frame.setTextColor(C_ACCENT, C_CARD);
+  frame.setCursor(16, 178 + 30);
+  frame.print(chans);
+
+  frame.setTextColor(C_MUTED, C_BG);
+  frame.setCursor(10, 236);
+  frame.print("Members of a cluster never scan the");
+  frame.setCursor(10, 248);
+  frame.print("same channel at once.");
+}
+
+// Saved wardriving profiles: a built-in DEFAULT plus MESH_NUM_PROFILES slots.
+void ScreenUI::drawProfilesView() {
+  drawSubViewBackBar(frame, "PROFILES");
+
+  // DEFAULT.
+  drawCard(8, 36, 224, 46, "DEFAULT");
+  frame.setTextColor(C_MUTED, C_CARD);
+  frame.setCursor(16, 36 + 30);
+  frame.print("Even split - band-aware");
+  frame.fillRoundRect(158, 46, 68, 24, 5, C_ACCENT);
+  frame.setTextDatum(MC_DATUM);
+  frame.setTextColor(C_BG, C_ACCENT);
+  frame.drawString("APPLY", 192, 58, 1);
+  frame.setTextDatum(TL_DATUM);
+
+  for (uint8_t i = 0; i < MESH_NUM_PROFILES; ++i) {
+    const int cardY = 88 + i * 58;
+    const bool used = meshProfileUsed(i);
+    char title[20];
+    snprintf(title, sizeof(title), "SLOT %u", (unsigned)(i + 1));
+    drawCard(8, cardY, 224, 52, title);
+
+    frame.setTextColor(used ? C_TEXT : C_MUTED, C_CARD);
+    frame.setCursor(72, cardY + 6);
+    if (used) {
+      frame.printf("%s (%u)", meshProfileName(i), (unsigned)meshProfileNodeCount(i));
+    } else {
+      frame.print("empty");
+    }
+
+    // Buttons row.
+    const int by = cardY + 28;
+    frame.setTextDatum(MC_DATUM);
+    if (used) {
+      frame.fillRoundRect(14, by, 66, 20, 4, C_ACCENT);
+      frame.setTextColor(C_BG, C_ACCENT);
+      frame.drawString("LOAD", 47, by + 10, 1);
+      frame.fillRoundRect(86, by, 66, 20, 4, C_INPUT);
+      frame.setTextColor(C_TEXT, C_INPUT);
+      frame.drawString("SAVE", 119, by + 10, 1);
+      frame.fillRoundRect(158, by, 66, 20, 4, C_INPUT);
+      frame.setTextColor(C_DANGER, C_INPUT);
+      frame.drawString("DELETE", 191, by + 10, 1);
+    } else {
+      frame.fillRoundRect(14, by, 66, 20, 4, C_INPUT);
+      frame.setTextColor(C_TEXT, C_INPUT);
+      frame.drawString("SAVE", 47, by + 10, 1);
+    }
+    frame.setTextDatum(TL_DATUM);
   }
 }
 
@@ -1869,15 +2191,16 @@ void ScreenUI::drawSpeedo() {
 }
 
 void ScreenUI::drawEditor() {
-  const SettingDef& def = SETTINGS[editSetting];
-  const bool numeric = def.kind == SettingKind::Number;
+  const bool profileName = (editTarget == EditTarget::ProfileName);
+  const SettingDef& def = SETTINGS[profileName ? 0 : editSetting];
+  const bool numeric = !profileName && def.kind == SettingKind::Number;
 
   frame.fillRect(0, 0, SCREEN_W, HEADER_H, C_INPUT);
   frame.drawFastHLine(0, HEADER_H - 1, SCREEN_W, C_BORDER);
   frame.setTextSize(1);
   frame.setTextColor(C_TEXT, C_INPUT);
   frame.setCursor(8, 9);
-  frame.print(def.label);
+  frame.print(profileName ? "PROFILE NAME" : def.label);
   frame.setTextColor(C_MUTED, C_INPUT);
   frame.setTextDatum(TR_DATUM);
   frame.drawString(String(editBuffer.length()) + "/" + String(ED_MAX_LEN), 232, 9, 1);
@@ -1896,8 +2219,9 @@ void ScreenUI::drawEditor() {
 
   frame.setTextColor(C_MUTED, C_BG);
   frame.setCursor(10, ED_HINT_Y);
-  if (def.hint) frame.print(def.hint);
-  if (def.reboot) {
+  if (profileName) frame.print("Name this wardriving profile");
+  else if (def.hint) frame.print(def.hint);
+  if (!profileName && def.reboot) {
     frame.setTextColor(C_WARN, C_BG);
     frame.setCursor(189, ED_HINT_Y);
     frame.print("REBOOT");

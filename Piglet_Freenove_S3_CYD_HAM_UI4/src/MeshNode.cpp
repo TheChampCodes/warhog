@@ -130,6 +130,30 @@ static uint8_t  coreAssignVer  = 0;
 static uint32_t coreLastHbMs   = 0;
 static uint32_t coreHbCounter  = 0;
 
+// Sub-cluster membership remembered by MAC so a node that times out and
+// rejoins returns to the group the user put it in (coreNodes[] itself is
+// cleared on timeout). Default group is 1 for any MAC not listed here.
+struct GroupMem { uint8_t mac[6]; uint8_t group; };
+static GroupMem groupMem[CORE_MAX_NODES] = {};
+static uint8_t  groupMemCount = 0;
+
+static uint8_t rememberedGroup(const uint8_t* mac) {
+  for (uint8_t i = 0; i < groupMemCount; i++)
+    if (memcmp(groupMem[i].mac, mac, 6) == 0) return groupMem[i].group;
+  return 1;  // default sub-cluster
+}
+
+static void rememberGroup(const uint8_t* mac, uint8_t group) {
+  for (uint8_t i = 0; i < groupMemCount; i++) {
+    if (memcmp(groupMem[i].mac, mac, 6) == 0) { groupMem[i].group = group; return; }
+  }
+  if (groupMemCount < CORE_MAX_NODES) {
+    memcpy(groupMem[groupMemCount].mac, mac, 6);
+    groupMem[groupMemCount].group = group;
+    groupMemCount++;
+  }
+}
+
 static const uint32_t CORE_HB_MS        = 5000;
 static const uint32_t CORE_NODE_TIMEOUT = 90000;  // 90 s — generous for many-node ESP-Now collisions
 
@@ -503,6 +527,8 @@ static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit, bool band24) {
       coreNodes[i].recordsRx = 0;
       coreNodes[i].isBiscuit = isBiscuit;
       coreNodes[i].band24Only = band24;
+      coreNodes[i].group     = rememberedGroup(mac);
+      coreNodes[i].chanCount = 0;
       memcpy(coreNodes[i].mac, mac, 6);
       coreNodeCount++;
       jcmkAddPeer(mac);
@@ -519,22 +545,34 @@ static void coreFindOrAddNode(const uint8_t* mac, bool isBiscuit, bool band24) {
   Serial.println("[CORE] Max nodes reached");
 }
 
-// Band-aware channel assignment. 2.4 GHz-only nodes (declared via "B24") scan
-// the productive 2.4 set {1,6,11}; dual-band (C5) nodes split the 5 GHz space.
-// If there are no dual nodes, 5 GHz simply isn't covered (nothing can scan it);
-// if there are no 2.4-only nodes, the first dual node also takes {1,6,11} so
-// 2.4 stays covered. All of the user's nodes are Biscuit-type (full-size
-// packets), so every node gets the explicit "channels=..." string config.
-static void coreAssignAndSend(bool bumpVersion) {
+// Record the exact channel list a node is scanning (for the on-device UI) and
+// push it to the node.
+static void coreApplyNodeChannels(CoreNodeInfo& nd, const uint8_t* list, uint8_t nl) {
+  nd.chanCount = (nl <= sizeof(nd.chans)) ? nl : (uint8_t)sizeof(nd.chans);
+  memcpy(nd.chans, list, nd.chanCount);
+  coreSendBiscuitChannels(nd.mac, list, nl);
+}
+
+// Band-aware channel assignment for ONE sub-cluster. 2.4 GHz-only nodes
+// (declared via "B24") scan the productive 2.4 set {1,6,11}; dual-band (C5)
+// nodes split the 5 GHz space. If the group has no dual nodes, 5 GHz simply
+// isn't covered (nothing can scan it); if it has no 2.4-only nodes, the first
+// dual node also takes {1,6,11} so 2.4 stays covered. Splitting happens inside
+// the group so co-located nodes never scan the same channel at once; a group
+// of one node therefore scans everything. `idx`/`n` are indices into
+// coreNodes[] of the active members of this group. All of the user's nodes are
+// Biscuit-type (full-size packets), so every node gets an explicit
+// "channels=..." string config.
+static void coreAssignGroup(const uint8_t* idx, uint8_t n) {
+  if (n == 0) return;
+
   uint8_t dual[CORE_MAX_NODES], only24[CORE_MAX_NODES];
   uint8_t nDual = 0, n24 = 0;
-  for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
-    if (!coreNodes[i].active) continue;
+  for (uint8_t t = 0; t < n; t++) {
+    uint8_t i = idx[t];
     if (coreNodes[i].band24Only) only24[n24++] = i;
     else                         dual[nDual++] = i;
   }
-  if (nDual == 0 && n24 == 0) return;
-  if (bumpVersion) coreAssignVer++;
 
   static const uint8_t CH24[3] = {1, 6, 11};
   const uint8_t* ch5 = &JCMK_CHANNELS[14];                 // ch 36..177
@@ -542,8 +580,9 @@ static void coreAssignAndSend(bool bumpVersion) {
 
   // 2.4-only nodes: each scans 1/6/11.
   for (uint8_t k = 0; k < n24; k++) {
-    coreNodes[only24[k]].startIdx = 0;  coreNodes[only24[k]].endIdx = 10;  // display only
-    coreSendBiscuitChannels(coreNodes[only24[k]].mac, CH24, 3);
+    CoreNodeInfo& nd = coreNodes[only24[k]];
+    nd.startIdx = 0;  nd.endIdx = 10;  // display only
+    coreApplyNodeChannels(nd, CH24, 3);
     delay(10);
   }
 
@@ -552,6 +591,7 @@ static void coreAssignAndSend(bool bumpVersion) {
     uint8_t per = (nDual <= n5) ? (uint8_t)(n5 / nDual) : 1;
     if (per == 0) per = 1;
     for (uint8_t k = 0; k < nDual; k++) {
+      CoreNodeInfo& nd = coreNodes[dual[k]];
       uint8_t list[32];
       uint8_t nl = 0;
       if (n24 == 0 && k == 0) { list[nl++] = 1; list[nl++] = 6; list[nl++] = 11; }
@@ -560,17 +600,36 @@ static void coreAssignAndSend(bool bumpVersion) {
         uint8_t e = (k == nDual - 1) ? (uint8_t)(n5 - 1) : (uint8_t)(s + per - 1);
         if (e >= n5) e = (uint8_t)(n5 - 1);
         for (uint8_t j = s; j <= e && nl < sizeof(list); j++) list[nl++] = ch5[j];
-        coreNodes[dual[k]].startIdx = (uint8_t)(14 + s);
-        coreNodes[dual[k]].endIdx   = (uint8_t)(14 + e);
+        nd.startIdx = (uint8_t)(14 + s);
+        nd.endIdx   = (uint8_t)(14 + e);
       }
       if (nl == 0) { list[nl++] = 1; list[nl++] = 6; list[nl++] = 11; }  // safety
-      coreSendBiscuitChannels(coreNodes[dual[k]].mac, list, nl);
+      coreApplyNodeChannels(nd, list, nl);
       delay(10);
     }
   }
+}
 
-  Serial.printf("[CORE] Band-aware assign: %u dual(5G) + %u 2.4-only, v%d\n",
-                (unsigned)nDual, (unsigned)n24, coreAssignVer);
+// Assign channels across every sub-cluster. Each group is balanced on its own
+// (see coreAssignGroup), so groups overlap in coverage but members of the same
+// group never do.
+static void coreAssignAndSend(bool bumpVersion) {
+  if (coreNodeCount == 0) return;
+  if (bumpVersion) coreAssignVer++;
+
+  uint8_t nGroups = 0;
+  for (uint8_t g = 1; g <= CORE_MAX_GROUPS; g++) {
+    uint8_t idx[CORE_MAX_NODES];
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < CORE_MAX_NODES; i++)
+      if (coreNodes[i].active && coreNodes[i].group == g) idx[n++] = i;
+    if (n == 0) continue;
+    coreAssignGroup(idx, n);
+    nGroups++;
+  }
+
+  Serial.printf("[CORE] Sub-cluster assign: %u node(s) across %u group(s), v%d\n",
+                (unsigned)coreNodeCount, (unsigned)nGroups, coreAssignVer);
 }
 
 static void coreReassignChannels() { coreAssignAndSend(true);  }
@@ -578,6 +637,170 @@ static void coreReassignChannels() { coreAssignAndSend(true);  }
 // Re-send the current assignment to every node (nodes that missed an update
 // mid-scan recover). Does not bump the version.
 static void coreResendAdminToAll() { if (coreNodeCount) coreAssignAndSend(false); }
+
+// ================================================================
+//  Sub-cluster control + saved wardriving profiles (public API)
+// ================================================================
+uint8_t coreGroupMemberCount(uint8_t group) {
+  uint8_t n = 0;
+  for (uint8_t i = 0; i < CORE_MAX_NODES; i++)
+    if (coreNodes[i].active && coreNodes[i].group == group) n++;
+  return n;
+}
+
+void coreSetNodeGroup(uint8_t nodeIdx, uint8_t group) {
+  if (nodeIdx >= CORE_MAX_NODES || !coreNodes[nodeIdx].active) return;
+  if (group < 1) group = 1;
+  if (group > CORE_MAX_GROUPS) group = CORE_MAX_GROUPS;
+  if (coreNodes[nodeIdx].group == group) return;
+  coreNodes[nodeIdx].group = group;
+  rememberGroup(coreNodes[nodeIdx].mac, group);
+  coreReassignChannels();   // bump version + resend to every node
+}
+
+// ---- Wardriving profiles: named node→sub-cluster presets, saved on SD so a
+// recurring physical setup (same boards, same antennas) can be recalled with
+// one tap instead of re-grouping every session. Stored as a small text file. --
+static const char* MESH_PROFILE_PATH = "/mesh_profiles.cfg";
+
+struct MeshProfileEntry { uint8_t mac[6]; uint8_t group; };
+struct MeshProfile {
+  bool            used;
+  char            name[MESH_PROFILE_NAME_MAX + 1];
+  uint8_t         count;
+  MeshProfileEntry entry[CORE_MAX_NODES];
+};
+static MeshProfile meshProfiles[MESH_NUM_PROFILES] = {};
+static bool        meshProfilesLoaded = false;
+
+static void meshParseMac(const String& s, uint8_t out[6]) {
+  for (uint8_t i = 0; i < 6; i++)
+    out[i] = (uint8_t)strtol(s.substring(i * 2, i * 2 + 2).c_str(), nullptr, 16);
+}
+
+static void meshProfilesLoad() {
+  memset(meshProfiles, 0, sizeof(meshProfiles));
+  meshProfilesLoaded = true;
+  if (!sdOk || !SD.exists(MESH_PROFILE_PATH)) return;
+  File f = SD.open(MESH_PROFILE_PATH, FILE_READ);
+  if (!f) return;
+  int slot = -1;
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0 || line[0] == '#') continue;
+    if (line[0] == 'P') {                              // "P <slot> <name...>"
+      int sp1 = line.indexOf(' ');
+      int sp2 = line.indexOf(' ', sp1 + 1);
+      if (sp1 < 0) { slot = -1; continue; }
+      slot = line.substring(sp1 + 1, sp2 < 0 ? line.length() : sp2).toInt();
+      if (slot < 0 || slot >= MESH_NUM_PROFILES) { slot = -1; continue; }
+      String nm = (sp2 < 0) ? String("") : line.substring(sp2 + 1);
+      meshProfiles[slot].used  = true;
+      meshProfiles[slot].count = 0;
+      strncpy(meshProfiles[slot].name, nm.c_str(), MESH_PROFILE_NAME_MAX);
+      meshProfiles[slot].name[MESH_PROFILE_NAME_MAX] = '\0';
+    } else if (line[0] == 'N' && slot >= 0) {          // "N <AABBCCDDEEFF> <group>"
+      int sp1 = line.indexOf(' ');
+      int sp2 = line.indexOf(' ', sp1 + 1);
+      if (sp1 < 0 || sp2 < 0) continue;
+      String macStr = line.substring(sp1 + 1, sp2);
+      uint8_t g = (uint8_t)line.substring(sp2 + 1).toInt();
+      MeshProfile& p = meshProfiles[slot];
+      if (macStr.length() >= 12 && p.count < CORE_MAX_NODES) {
+        meshParseMac(macStr, p.entry[p.count].mac);
+        p.entry[p.count].group = (g < 1) ? 1 : (g > CORE_MAX_GROUPS ? CORE_MAX_GROUPS : g);
+        p.count++;
+      }
+    }
+  }
+  f.close();
+}
+
+static void meshProfilesSaveToSD() {
+  if (!sdOk) return;
+  SD.remove(MESH_PROFILE_PATH);
+  File f = SD.open(MESH_PROFILE_PATH, FILE_WRITE);
+  if (!f) return;
+  f.println("# piglet mesh profiles v1");
+  for (uint8_t s = 0; s < MESH_NUM_PROFILES; s++) {
+    if (!meshProfiles[s].used) continue;
+    f.printf("P %u %s\n", (unsigned)s, meshProfiles[s].name);
+    for (uint8_t e = 0; e < meshProfiles[s].count; e++) {
+      const uint8_t* m = meshProfiles[s].entry[e].mac;
+      f.printf("N %02X%02X%02X%02X%02X%02X %u\n",
+               m[0], m[1], m[2], m[3], m[4], m[5],
+               (unsigned)meshProfiles[s].entry[e].group);
+    }
+  }
+  f.close();
+}
+
+void meshProfilesInit() { if (!meshProfilesLoaded) meshProfilesLoad(); }
+
+// DEFAULT profile: put every node back into sub-cluster 1 so the Core splits
+// channels evenly across all connected nodes (band-aware). Also forgets saved
+// per-MAC groupings so nodes that reconnect default to the even split too.
+void meshApplyDefault() {
+  groupMemCount = 0;
+  for (uint8_t i = 0; i < CORE_MAX_NODES; i++)
+    if (coreNodes[i].active) coreNodes[i].group = 1;
+  if (coreNodeCount) coreReassignChannels();
+}
+
+bool        meshProfileUsed(uint8_t slot)      { return slot < MESH_NUM_PROFILES && meshProfiles[slot].used; }
+const char* meshProfileName(uint8_t slot)      { return (slot < MESH_NUM_PROFILES) ? meshProfiles[slot].name : ""; }
+uint8_t     meshProfileNodeCount(uint8_t slot) { return (slot < MESH_NUM_PROFILES) ? meshProfiles[slot].count : 0; }
+
+// Capture the current node→sub-cluster grouping (all connected nodes) into a
+// slot and persist it.
+void meshSaveProfile(uint8_t slot, const char* name) {
+  if (slot >= MESH_NUM_PROFILES) return;
+  if (!meshProfilesLoaded) meshProfilesLoad();
+  MeshProfile& p = meshProfiles[slot];
+  memset(&p, 0, sizeof(p));
+  p.used = true;
+  if (name && *name) {
+    strncpy(p.name, name, MESH_PROFILE_NAME_MAX);
+    p.name[MESH_PROFILE_NAME_MAX] = '\0';
+  } else {
+    snprintf(p.name, sizeof(p.name), "Profile %u", (unsigned)(slot + 1));
+  }
+  for (uint8_t i = 0; i < CORE_MAX_NODES && p.count < CORE_MAX_NODES; i++) {
+    if (!coreNodes[i].active) continue;
+    memcpy(p.entry[p.count].mac, coreNodes[i].mac, 6);
+    p.entry[p.count].group = coreNodes[i].group;
+    p.count++;
+  }
+  meshProfilesSaveToSD();
+}
+
+// Apply a saved profile: set the sub-cluster of every matching connected node
+// (and remember it by MAC so nodes not yet connected land in the right group
+// when they join), then recompute + push assignments. Returns how many
+// connected nodes matched.
+uint8_t meshApplyProfile(uint8_t slot) {
+  if (slot >= MESH_NUM_PROFILES || !meshProfiles[slot].used) return 0;
+  MeshProfile& p = meshProfiles[slot];
+  uint8_t applied = 0;
+  for (uint8_t e = 0; e < p.count; e++) {
+    rememberGroup(p.entry[e].mac, p.entry[e].group);
+    for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
+      if (coreNodes[i].active && memcmp(coreNodes[i].mac, p.entry[e].mac, 6) == 0) {
+        coreNodes[i].group = p.entry[e].group;
+        applied++;
+      }
+    }
+  }
+  if (coreNodeCount) coreReassignChannels();
+  return applied;
+}
+
+void meshDeleteProfile(uint8_t slot) {
+  if (slot >= MESH_NUM_PROFILES) return;
+  memset(&meshProfiles[slot], 0, sizeof(meshProfiles[slot]));
+  meshProfilesSaveToSD();
+}
 
 static void coreSendHeartbeatToAll() {
   // Broadcast a single heartbeat instead of per-node unicast.
@@ -838,6 +1061,7 @@ void enterCoreMode() {
   coreReqHead = coreReqTail = 0;
   coreTextHead = coreTextTail = 0;
   memset(coreNodes, 0, sizeof(coreNodes));
+  meshProfilesInit();  // load saved sub-cluster profiles from SD
 
   // Mesh mode owns the WiFi stack — prevent stopAPIfAllowed() from firing
   // WiFi.disconnect(true,true) after esp_now_init() would kill the ESP-Now driver.

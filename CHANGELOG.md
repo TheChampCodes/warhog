@@ -7,6 +7,22 @@ the base firmware history.
 
 ## Unreleased
 
+### CYD mesh: sub-clusters, cluster UI & wardriving profiles
+On-device cluster management for the **Freenove S3 CYD (HAM UI4)** firmware, in Core mode:
+- **Cluster view** — the Home STATUS card (in Core mode) drills into the live node list.
+  Each worker card is tappable and shows its sub-cluster tag and the exact channels it is
+  scanning.
+- **Sub-clusters** — tap a node to open a per-node editor and move it between sub-clusters
+  (`CL1…CL9`). The Core now splits channels *within* each sub-cluster, so co-located nodes
+  sharing one antenna never scan the same channel at once, while separate clusters each
+  cover the spectrum independently. Splitting stays band-aware (2.4 GHz-only nodes get
+  1/6/11; dual-band nodes share the 5 GHz space).
+- **Wardriving profiles** — a built-in **DEFAULT** (even band-aware split across all nodes)
+  plus **3 named custom slots** saved to the SD card (`/mesh_profiles.cfg`). Save the
+  current grouping, then recall a setup with one tap instead of re-grouping each session;
+  groupings are remembered by MAC so a node that drops and rejoins returns to its cluster.
+- All CSV logs across the fork firmwares now rotate under a hard 30 MB ceiling (byte-based).
+
 ### Upstream sync — now at v2.7
 Brought the shared firmware up from the v2.62 fork point to upstream **v2.7**, keeping all
 fork additions (BLE bridge, PigWorld, herd-count display, PlatformIO builds):

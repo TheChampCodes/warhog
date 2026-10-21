@@ -48,6 +48,8 @@ private:
 
   void drawHome();
   void drawNodes();
+  void drawNodeDetail();        // per-node sub-cluster + channel editor (Core mode)
+  void drawProfilesView();      // saved wardriving profiles list (Core mode)
   void drawGpsSection(int y);   // GPS info block, appended to the Home page
   void drawFiles();
   void drawCsvPreview();
@@ -60,12 +62,15 @@ private:
   void drawEditor();
 
   void openEditor(int settingIndex);
+  void openProfileNameEditor(int slot);  // name a profile before saving it
   void handleEditorTap(int16_t x, int16_t y);
   void persistConfig();
 
   void handleTap(int16_t x, int16_t y);
   void handleHomeTap(int16_t x, int16_t contentY);
   void handleNodesTap(int16_t x, int16_t contentY);
+  void handleNodeDetailTap(int16_t x, int16_t contentY);
+  void handleProfilesTap(int16_t x, int16_t contentY);
   void handleFilesTap(int16_t x, int16_t contentY);
   void handleSystemTap(int16_t x, int16_t contentY);
 
@@ -190,6 +195,17 @@ private:
   String editBuffer;
   uint8_t editLayer = 0;  // 0 = lower, 1 = upper, 2 = symbols
   bool lastSaveOk = true;
+
+  // On-screen keyboard target: a config setting, or a wardriving profile name.
+  enum class EditTarget : uint8_t { Setting, ProfileName };
+  EditTarget editTarget = EditTarget::Setting;
+  int editProfileSlot = -1;
+
+  // NODES page sub-views (Core mode). Mutually exclusive with the list.
+  bool nodeDetail = false;    // per-node sub-cluster/channel editor
+  int  selectedNode = -1;     // index into coreNodes[] being edited
+  bool profilesView = false;  // saved-profiles list
+  int  profileSaveTarget = -1; // slot awaiting a "save current" confirmation (-1 = none)
 };
 
 extern ScreenUI screenUI;
