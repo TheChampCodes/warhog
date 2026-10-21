@@ -7,6 +7,7 @@
 #include "SDUtils.h"
 #include "BleScanner.h"
 #include "ScreenTelemetry.h"
+#include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include <esp_now.h>
 #include "esp_wifi.h"
 
@@ -922,6 +923,7 @@ static void nodeDoScanTick() {
     // The scan left the radio on the scan channel; Core listens only on ch 6.
     jcmkSetChannel(JCMK_ESPNOW_CH);
     for (int i = 0; i < n; i++) {
+      if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
       String bssid = WiFi.BSSIDstr(i);
       String ssid  = WiFi.SSID(i);
       String auth  = meshAuthModeToString(WiFi.encryptionType(i));

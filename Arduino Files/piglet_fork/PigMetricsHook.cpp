@@ -74,6 +74,8 @@ void pigMetricsOnRecordStr(const char* bssid, int rssi, int ch,
 
 void pigMetricsOnMeshTx(uint32_t bytes) { ensureInit(); s_m.addMeshTxBytes(bytes); }
 
+void pigMetricsOnSuppressed() { ensureInit(); s_m.addSuppressed(); }
+
 void pigMetricsTick() {
   ensureInit();
   uint32_t now = millis();
@@ -101,6 +103,7 @@ void pigMetricsTick() {
 void pigMetricsOnScanResult(const uint8_t*, int8_t, uint8_t, const char*, uint8_t) {}
 void pigMetricsOnRecordStr(const char*, int, int, const char*, const char*) {}
 void pigMetricsOnMeshTx(uint32_t) {}
+void pigMetricsOnSuppressed() {}
 void pigMetricsTick() {}
 
 #endif

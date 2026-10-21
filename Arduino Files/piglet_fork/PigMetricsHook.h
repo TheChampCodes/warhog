@@ -28,5 +28,8 @@ void pigMetricsOnRecordStr(const char* bssid, int rssi, int ch,
 // Bytes of a record/observation frame handed to the ESP-NOW driver (node role).
 void pigMetricsOnMeshTx(uint32_t bytes);
 
+// One sighting the dedup path suppressed (Phase 1) — for the supp_pct metric.
+void pigMetricsOnSuppressed();
+
 // Call once per loop(); prints the header on first call and a PIGM line at 1 Hz.
 void pigMetricsTick();

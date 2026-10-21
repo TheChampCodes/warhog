@@ -22,6 +22,7 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -3096,6 +3097,7 @@ static void nodeDoScanTick() {
       // Biscuit Pro), or Core type not yet confirmed. Unchanged from before.
       jcmkSetChannel(JCMK_ESPNOW_CH);
       for (int i = 0; i < n; i++) {
+        if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
         String bssid = WiFi.BSSIDstr(i);
         String ssid  = WiFi.SSID(i);
         String auth  = authModeToString(WiFi.encryptionType(i));
@@ -3128,6 +3130,7 @@ static void nodeDoScanTick() {
       // schedules -- jcmkPigletSlotTick() flushes this buffer only during
       // this node's own deterministic transmit slot.
       for (int i = 0; i < n; i++) {
+        if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
         String bssid = WiFi.BSSIDstr(i);
         String ssid  = WiFi.SSID(i);
         String auth  = authModeToString(WiFi.encryptionType(i));

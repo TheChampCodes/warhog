@@ -28,7 +28,7 @@ public:
     return "PIGM,t_ms,uniq_bssid_total,uniq_per_min,gross_per_min,mesh_tx_bytes,"
            "mesh_tx_bytes_per_uniq,qObs_drops,qStore_drops,sd_lat_ewma_ms,"
            "assign_count,reassign_rejected_by_gate,cache_fill_pct,nodes_active,"
-           "gps_fix_type_hist,pos_age_ms_p50,pos_age_ms_p95";
+           "gps_fix_type_hist,pos_age_ms_p50,pos_age_ms_p95,gross_total,supp_pct";
   }
 
   void begin(uint32_t now) {
@@ -40,7 +40,8 @@ public:
 
   // --- event hooks (cheap; call from existing scan/mesh/GPS paths) ----------
   void addUnique(uint32_t n = 1) { uniq_total_ += n; cur_u_ += n; }  // NEW BSSID
-  void addGross (uint32_t n = 1) { cur_g_ += n; }                    // any sighting
+  void addGross (uint32_t n = 1) { cur_g_ += n; gross_total_ += n; } // any sighting
+  void addSuppressed(uint32_t n = 1) { suppressed_total_ += n; }     // dedup skipped a repeat
   void addMeshTxBytes(uint32_t b) { mesh_tx_bytes_ += b; }           // bytes on the mesh
   void addAssign()           { assign_count_++; }
   void addReassignRejected() { reassign_rej_++; }
@@ -69,9 +70,11 @@ public:
     for (int i = 0; i < RATE_WIN; ++i) { upm += uring_[i]; gpm += gring_[i]; }
     double   bpu = uniq_total_ ? (double)mesh_tx_bytes_ / (double)uniq_total_ : 0.0;
     uint32_t p50 = pctile_(50), p95 = pctile_(95);
+    // Airtime saved by dedup: suppressed sightings as a % of all sightings seen.
+    unsigned supp_pct = gross_total_ ? (unsigned)((100ull * suppressed_total_) / gross_total_) : 0u;
     return snprintf(out, cap,
       "PIGM,%lu,%lu,%lu,%lu,%lu,%.1f,%lu,%lu,%.1f,%lu,%lu,%u,%u,"
-      "%lu:%lu:%lu:%lu:%lu,%lu,%lu",
+      "%lu:%lu:%lu:%lu:%lu,%lu,%lu,%lu,%u",
       (unsigned long)now, (unsigned long)uniq_total_, (unsigned long)upm,
       (unsigned long)gpm, (unsigned long)mesh_tx_bytes_, bpu,
       (unsigned long)qobs_drops_, (unsigned long)qstore_drops_, (double)sd_lat_ewma_,
@@ -79,7 +82,8 @@ public:
       (unsigned)cache_fill_, (unsigned)nodes_,
       (unsigned long)gps_fix_hist_[0], (unsigned long)gps_fix_hist_[1],
       (unsigned long)gps_fix_hist_[2], (unsigned long)gps_fix_hist_[3],
-      (unsigned long)gps_fix_hist_[4], (unsigned long)p50, (unsigned long)p95);
+      (unsigned long)gps_fix_hist_[4], (unsigned long)p50, (unsigned long)p95,
+      (unsigned long)gross_total_, supp_pct);
   }
 
   // --- accessors (tests / UI snapshots) -------------------------------------
@@ -89,6 +93,8 @@ public:
   uint32_t grossPerMin() const { uint32_t s=cur_g_; for(int i=0;i<RATE_WIN;++i) s+=gring_[i]; return s; }
   uint32_t posP50()      const { return pctile_(50); }
   uint32_t posP95()      const { return pctile_(95); }
+  uint32_t grossTotal()  const { return gross_total_; }
+  uint32_t suppressed()  const { return suppressed_total_; }
 
 private:
   void roll_(uint32_t now) {               // close completed seconds into the ring
@@ -114,6 +120,7 @@ private:
 
   // cumulative counters
   uint32_t uniq_total_, mesh_tx_bytes_, assign_count_, reassign_rej_;
+  uint32_t gross_total_, suppressed_total_;
   uint32_t qobs_drops_, qstore_drops_;
   float    sd_lat_ewma_;
   uint8_t  cache_fill_, nodes_;

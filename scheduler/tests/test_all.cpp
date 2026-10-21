@@ -213,6 +213,14 @@ static void test_metrics() {
   CHECK(m.uniqPerMin() == 0 && m.grossPerMin() == 0, "rate window decays to 0 after a minute idle");
   CHECK(m.uniqTotal() == 3, "uniq_total is cumulative, not windowed");
 
+  // gross_total + supp_pct (Phase-1 dedup airtime-saved field)
+  PigMetrics sp; sp.begin(0);
+  for (int i = 0; i < 10; ++i) sp.addGross();
+  for (int i = 0; i < 4;  ++i) sp.addSuppressed();
+  CHECK(sp.grossTotal() == 10 && sp.suppressed() == 4, "gross/suppressed totals track");
+  char sb[256]; sp.format(sb, sizeof(sb), 1000);
+  CHECK(strstr(sb, ",10,40") != nullptr, "format appends gross_total,supp_pct (4/10 = 40%)");
+
   // pos-age percentiles: 100 rows all at 250 ms -> p50/p95 land in the 200-300 bucket
   PigMetrics g; g.begin(0);
   for (int i = 0; i < 100; ++i) g.addGps(3, 250);

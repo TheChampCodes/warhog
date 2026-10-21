@@ -38,6 +38,7 @@
 #include <U8g2lib.h>
 #include <NimBLEDevice.h>
 #include "pig_sprites.h"
+#include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 
 #define FIRMWARE_VERSION "v2.58-c3"
 
@@ -1649,6 +1650,7 @@ static void scanTick() {
     // Return to ch 6 before sending (Core only listens on ch 6)
     setChannel(ESPNOW_CH);
     for (int i = 0; i < n; i++) {
+      if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
       wifi_auth_mode_t am = WiFi.encryptionType(i);
       if (markSeen(WiFi.BSSID(i))) {
         netNew++; hopPending = true; lastNewMs = millis();

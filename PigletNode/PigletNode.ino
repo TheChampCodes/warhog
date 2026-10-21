@@ -22,6 +22,10 @@
 
 #define FIRMWARE_VERSION "v2.65"
 
+// Scheduler Phase 1: shared worker-side BSSID dedup (flag PIG_FEAT_DEDUP, default
+// OFF -> zero behavior change). See scheduler/pig_dedup.h.
+#include "pig_dedup.h"   // scheduler/ (via -I../scheduler)
+
 // ================================================================
 //  Board — XIAO ESP32-C5
 // ================================================================
@@ -379,6 +383,7 @@ static void scanTick() {
     // Return to ch 6 before sending (Core only listens on ch 6)
     setChannel(ESPNOW_CH);
     for (int i = 0; i < n; i++) {
+      if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
       String ssid = WiFi.SSID(i);
       String auth = authStr(WiFi.encryptionType(i));
       if (plainBiscuit) {
