@@ -1429,6 +1429,7 @@ void ScreenUI::drawNodes() {
     const int py = NODE_PROFILES_TOP - s;
     frame.fillRoundRect(8, py, 224, NODE_PROFILES_H, 6, C_INPUT);
     frame.drawRoundRect(8, py, 224, NODE_PROFILES_H, 6, C_BORDER);
+    frame.setTextSize(1);  // drawMetric above leaves size at 2; shrink the bar text
     frame.setTextDatum(ML_DATUM);
     frame.setTextColor(C_ACCENT, C_INPUT);
     frame.drawString("PROFILES", 18, py + NODE_PROFILES_H / 2, 1);
