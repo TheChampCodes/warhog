@@ -471,9 +471,12 @@ static String normalizeSdPath(const char* dir, const char* nameIn) {
   return d + "/" + n;
 }
 
-// Row limit per CSV: ~120 bytes/row x 100k = ~12 MB, under WDGoWars 15 MB cap.
-static const uint32_t CSV_MAX_ROWS = 100000;
-static uint32_t       csvRowCount  = 0;
+// Hard size cap per CSV file: keep every log safely under the 30 MB upload
+// limit so each file can always be uploaded. Byte-based (not a row-count
+// estimate) so the ceiling holds regardless of row width; the ~1 MB headroom
+// below 30 MB absorbs the final row plus the next file's header.
+static const uint32_t CSV_MAX_BYTES = 29u * 1024u * 1024u;  // < 30 MB
+static uint32_t       csvBytes      = 0;
 
 // Sanitise device name for filename/header use
 static String tdongleSanitiseName(const String& raw) {
@@ -538,7 +541,8 @@ static bool openLogFile() {
   logFile.println(",display=TFT-ST7735-80x160,board=LilyGo-T-Dongle-C5,brand=Piglet,star=Sol,body=3,subBody=0");
   logFile.println("MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type");
   logFile.flush();
-  csvRowCount = 0;
+  // Seed the byte counter with the header size so the cap accounts for it.
+  csvBytes = (uint32_t)logFile.size();
   return true;
 }
 
@@ -548,9 +552,9 @@ static void appendWigleRow(const String& mac, const String& ssid, const String& 
                            const char* type = "WIFI") {
   if (!sdOk || !logFile) return;
 
-  // Rotate CSV before it exceeds the WDGoWars 15 MB upload limit
-  if (csvRowCount >= CSV_MAX_ROWS) {
-    Serial.println("[SD] CSV row limit reached, rotating log file");
+  // Rotate CSV before it reaches the size cap so every file stays < 30 MB
+  if (csvBytes >= CSV_MAX_BYTES) {
+    Serial.println("[SD] CSV size cap reached, rotating log file");
     closeLogFile();
     if (!openLogFile()) return;
   }
@@ -580,7 +584,7 @@ static void appendWigleRow(const String& mac, const String& ssid, const String& 
 
   digitalWrite(PINS.tft_cs, HIGH);
   size_t written = logFile.println(line);
-  csvRowCount++;
+  csvBytes += (uint32_t)written;
 
   // Detect silent write failure — if println() returns 0 for a non-empty line,
   // the SD card or file handle is broken. Attempt to reopen the log file once;

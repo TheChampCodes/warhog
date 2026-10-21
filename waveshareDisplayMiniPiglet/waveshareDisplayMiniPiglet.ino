@@ -251,6 +251,14 @@ static uint32_t networksFound5G = 0; // (unused on C6; kept for status consisten
 static File logFile;
 static String currentCsvPath;
 
+// Hard size cap per CSV file: keep every log safely under the 30 MB upload
+// limit so each file can always be uploaded. Byte-based so the ceiling holds
+// regardless of row width; the ~1 MB headroom below 30 MB absorbs the final
+// row plus the next file's header. When the cap is reached, the active CSV is
+// closed and a fresh one is opened with proper WiGLE headers.
+static const uint32_t CSV_MAX_BYTES = 29u * 1024u * 1024u;  // < 30 MB
+static uint32_t       csvBytes      = 0;
+
 static wl_status_t lastStaStatus = WL_IDLE_STATUS;
 
 // --------- De-dupe logic (hash table) -----------
@@ -568,6 +576,8 @@ static bool openLogFile() {
   logFile.println("WigleWifi-1.4,appRelease=1,model=Waveshare-ESP32C6-LCD-1.47,release=1,device=Piglet-Wardriver");
   logFile.println("MAC,SSID,AuthMode,FirstSeen,Channel,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,Type");
   logFile.flush();
+  // Seed the byte counter with the header size so the cap accounts for it.
+  csvBytes = (uint32_t)logFile.size();
 
   Serial.println("[SD] Log file initialized with WiGLE headers");
   return true;
@@ -577,6 +587,13 @@ static void appendWigleRow(const String& mac, const String& ssid, const String& 
                            const String& firstSeen, int channel, int rssi,
                            double lat, double lon, double altM, double accM) {
   if (!sdOk || !logFile) return;
+
+  // Rotate CSV before it reaches the size cap so every file stays < 30 MB
+  if (csvBytes >= CSV_MAX_BYTES) {
+    Serial.println("[SD] CSV size cap reached, rotating log file");
+    closeLogFile();
+    if (!openLogFile()) return;
+  }
 
   String safeSsid = ssid;
   safeSsid.replace("\"", "\"\"");
@@ -597,7 +614,7 @@ static void appendWigleRow(const String& mac, const String& ssid, const String& 
 
 
     digitalWrite(PINS.tft_cs, HIGH);
-    logFile.println(line);
+    csvBytes += (uint32_t)logFile.println(line);
   static uint32_t lastFlushMs = 0;
   static uint32_t linesSinceFlush = 0;
   linesSinceFlush++;

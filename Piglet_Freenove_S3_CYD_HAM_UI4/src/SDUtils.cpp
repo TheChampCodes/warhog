@@ -126,11 +126,14 @@ bool moveToUploaded(const String& srcPath) {
 
 // ---- Log file ----
 
-// Row limit per CSV file: ~120 bytes/row × 100k = ~12 MB, safely under the
-// WDGoWars 15 MB upload cap. When the limit is reached, the active CSV is
-// closed and a fresh one is opened with proper WiGLE headers.
-static const uint32_t CSV_MAX_ROWS = 100000;
-static uint32_t       csvRowCount  = 0;
+// Hard size cap per CSV file: keep every log safely under the 30 MB upload
+// limit so each file can always be uploaded. This is byte-based (not a
+// row-count estimate) so the ceiling holds regardless of row width — long
+// SSIDs or RCOIs can't push a file over. The ~1 MB of headroom below 30 MB
+// absorbs the final row plus the next file's header. When the cap is reached,
+// the active CSV is closed and a fresh one is opened with proper WiGLE headers.
+static const uint32_t CSV_MAX_BYTES = 29u * 1024u * 1024u;  // < 30 MB
+static uint32_t       csvBytes      = 0;
 
 // Sanitise a user-provided device name for safe use in filenames.
 // Keeps alphanumerics, hyphens, underscores; replaces spaces with _;
@@ -217,7 +220,8 @@ bool openLogFile() {
   logFile.println(",brand=Piglet,star=Sol,body=3,subBody=0");
   logFile.println("MAC,SSID,AuthMode,FirstSeen,Channel,Frequency,RSSI,CurrentLatitude,CurrentLongitude,AltitudeMeters,AccuracyMeters,RCOIs,MfgrId,Type");
   logFile.flush();
-  csvRowCount = 0;
+  // Seed the byte counter with the header size so the cap accounts for it.
+  csvBytes = (uint32_t)logFile.size();
 
   Serial.println("[SD] Log file initialized with WiGLE headers");
   return true;
@@ -237,15 +241,15 @@ void closeLogFile() {
 static void writeLogLine(const String& line) {
   if (!sdOk || !logFile) return;
 
-  // Rotate CSV before it exceeds the WDGoWars 15 MB upload limit
-  if (csvRowCount >= CSV_MAX_ROWS) {
-    Serial.println("[SD] CSV row limit reached, rotating log file");
+  // Rotate CSV before it reaches the size cap so every file stays < 30 MB
+  if (csvBytes >= CSV_MAX_BYTES) {
+    Serial.println("[SD] CSV size cap reached, rotating log file");
     closeLogFile();
     if (!openLogFile()) return;
   }
 
   size_t written = logFile.println(line);
-  csvRowCount++;
+  csvBytes += (uint32_t)written;
 
   // Detect silent write failure — if println() returns 0 for a non-empty line,
   // the SD card or file handle is broken. Attempt to reopen the log file once;
