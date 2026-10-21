@@ -37,6 +37,7 @@
 #include "MeshNode.h"
 #include "BLEBridge.h"
 #include "PigWorld.h"
+#include "PigMetricsHook.h"   // Phase-0 instrumentation (observe-only)
 
 // -------- Battery Test (uncomment to enable) --------
 #include "battery_test.h"
@@ -104,13 +105,13 @@ static void onPageChange(uint8_t oldPage, uint8_t newPage) {
     pig.phase = 0;
   }
 
-  // Mesh node page lifecycle — always enter as Node; long-press activates Core.
-  // Skip if a mesh role is already live (the PigWorld scene may have started a Node
-  // on the Pig page); enterNodeMode() re-inits WiFi and would zero the counters.
-  if (newPage == 5 && !meshNodeActive && !meshCoreActive) enterNodeMode();
+  // Mesh page lifecycle. The mesh page no longer auto-joins as Node — the device
+  // stays in its current role (Solo by default); long-press on the page/PigWorld
+  // view cycles Solo -> Core -> Node -> Solo. Leaving the page tears down any
+  // active mesh role back to Solo (nothing to do if already Solo).
   if (oldPage == 5) {
-    if (meshCoreActive) exitCoreMode();
-    else                exitNodeMode();
+    if (meshCoreActive)      exitCoreMode();
+    else if (meshNodeActive) exitNodeMode();
   }
 
   Serial.print("[PAGE] ");
@@ -165,17 +166,22 @@ static void pollButton() {
         longPressTriggered = true;
         clickCount = 0;  // cancel any pending click
         if (currentPage == 5 || pigWorldActive()) {
-          // Mesh / PigWorld scene page: long-press toggles Core <-> Node
-          // (instead of sleeping). Keep showing the scene across the switch.
-          if (meshCoreActive) {
+          // Mesh / PigWorld scene: long-press cycles the device role
+          //   Solo -> Mesh Core -> Mesh Node -> Solo
+          // (instead of sleeping). viewOn / currentPage are untouched, so the
+          // PigWorld scene keeps rendering across the switch and auto-reflects
+          // the new role.
+          if (meshCoreActive) {            // Core -> Node
             exitCoreMode();
             enterNodeMode();
-          } else {
+            Serial.println("[BTN] PigWorld mode cycle -> MESH NODE");
+          } else if (meshNodeActive) {     // Node -> Solo
             exitNodeMode();
+            Serial.println("[BTN] PigWorld mode cycle -> SOLO");
+          } else {                          // Solo -> Core
             enterCoreMode();
+            Serial.println("[BTN] PigWorld mode cycle -> MESH CORE");
           }
-          // viewOn / currentPage are untouched by the mode swap, so the
-          // PigWorld scene keeps rendering across the Core<->Node switch.
         } else {
           enterDeepSleep();  // never returns
         }
@@ -207,11 +213,9 @@ static void pollButton() {
       Serial.print("[BTN] Double press -> status page scan ");
       Serial.println(statusPagePaused ? "PAUSED" : "RESUMED");
     } else if (pigWorldTakePress()) {
-      // Single press on the Pig or Mesh page: show the PigWorld view first (see PigWorld.h).
-      // Opening the scene turns the Piglet into a mesh Node, and it stays a Node until you
-      // leave the page (onPageChange exits on the way out of page 5). Skip if a mesh role
-      // is already live — enterNodeMode() re-inits WiFi and zeroes the counters.
-      if (!meshNodeActive && !meshCoreActive) enterNodeMode();
+      // Single press on the Pig or Mesh page: open the PigWorld view (see PigWorld.h).
+      // Opening no longer forces Mesh Node — the device stays in its current role
+      // (Solo if none). Long-press on the view cycles Solo -> Core -> Node -> Solo.
     } else {
       // Single press -> cycle page (once, regardless of extra clicks)
       uint8_t oldPage = currentPage;
@@ -586,6 +590,13 @@ void setup() {
       currentPage = 5;
       enterCoreMode();
       pigWorldTakePress();  // default screen = the PigWorld scene on the mesh page
+    } else {
+      // Solo wardriving (no mesh role): default the display to the PigWorld scene
+      // on the Pig page, just as the mesh modes do. The scene's solo branch shows
+      // the wardrive pig with the 2.4G+5G network counter; scanning runs on page 4
+      // exactly as on the other wardrive pages, so the scene animates live.
+      currentPage = 4;
+      pigWorldTakePress();
     }
   }
 
@@ -783,6 +794,10 @@ void loop() {
 
   // Battery test tick (uncomment to enable)
   batteryTestTick();
+
+  // Phase-0 scheduler instrumentation: emits the 1 Hz "PIGM,..." line over
+  // Serial (observe-only; see scheduler/DESIGN.md §13). No behavior change.
+  pigMetricsTick();
 
   delay(10);
 }

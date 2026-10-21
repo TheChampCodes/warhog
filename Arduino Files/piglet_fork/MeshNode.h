@@ -40,8 +40,9 @@ void drawPageMeshNode();
 
 // ================================================================
 //  MeshCore — Core (coordinator) role
-//  Long-press on page 5 while in Node mode activates Core mode;
-//  long-press again returns to Node mode.
+//  On the mesh page / PigWorld view, a long-press cycles the device role
+//  Solo -> Mesh Core -> Mesh Node -> Solo. The mesh page defaults to Solo
+//  (it no longer auto-joins as Node); leaving the page returns to Solo.
 // ================================================================
 
 #define CORE_MAX_NODES 12
