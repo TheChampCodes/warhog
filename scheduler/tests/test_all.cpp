@@ -4,9 +4,12 @@
 #include "../bssid_cache.h"
 #include "../lossy_ring.h"
 #include "../yield_sched.h"
+#include "../pig_metrics.h"
+#include "../pig_replay.h"
 
 #include <cstdio>
 #include <cassert>
+#include <cstring>
 
 uint32_t g_test_millis = 0;   // backing store for the Arduino.h shim
 
@@ -188,6 +191,90 @@ static void test_sched() {
   CHECK(sched_should_reassign(100000, 0, 1.0f, 100.0f, 10.0f, cfg), "all gates pass -> reassign");
 }
 
+// ---------------------------------------------------------------- pig_metrics
+static void test_metrics() {
+  printf("[pig_metrics]\n");
+  PigMetrics m; m.begin(0);
+
+  for (int i = 0; i < 3; ++i) m.addUnique();
+  for (int i = 0; i < 10; ++i) m.addGross();
+  m.addMeshTxBytes(2120);
+  CHECK(m.uniqTotal() == 3, "uniq_total counts NEW sightings");
+  CHECK(m.meshTxBytes() == 2120, "mesh_tx_bytes accumulates");
+  CHECK(m.uniqPerMin() == 3 && m.grossPerMin() == 10, "rates include the in-progress second");
+
+  // format writes a tagged, non-empty line
+  char buf[256];
+  int n = m.format(buf, sizeof(buf), 1000);
+  CHECK(n > 0 && strncmp(buf, "PIGM,", 5) == 0, "format emits a PIGM-tagged line");
+
+  // trailing-minute window decays: after >60 s of silence the rates fall to 0
+  for (uint32_t t = 2000; t <= 65000; t += 1000) { char b2[256]; m.format(b2, sizeof(b2), t); }
+  CHECK(m.uniqPerMin() == 0 && m.grossPerMin() == 0, "rate window decays to 0 after a minute idle");
+  CHECK(m.uniqTotal() == 3, "uniq_total is cumulative, not windowed");
+
+  // pos-age percentiles: 100 rows all at 250 ms -> p50/p95 land in the 200-300 bucket
+  PigMetrics g; g.begin(0);
+  for (int i = 0; i < 100; ++i) g.addGps(3, 250);
+  CHECK(g.posP50() == 300 && g.posP95() == 300, "percentile picks the containing bucket upper edge");
+  // skewed: 95 rows @ 50 ms, 5 rows @ 1400 ms -> p50 low, p95 high
+  PigMetrics g2; g2.begin(0);
+  for (int i = 0; i < 95; ++i) g2.addGps(3, 50);
+  for (int i = 0; i < 5;  ++i) g2.addGps(3, 1400);
+  CHECK(g2.posP50() == 100, "p50 stays in the dense low bucket");
+  CHECK(g2.posP95() >= 100 && g2.posP95() <= 1600, "p95 reflects the tail");
+  PigMetrics g3; g3.begin(0);
+  CHECK(g3.posP95() == 0, "no gps samples -> percentile 0");
+}
+
+// ---------------------------------------------------------------- pig_replay
+static void test_replay() {
+  printf("[pig_replay]\n");
+  ReplayEvent ev;
+
+  CHECK(!replay_parse("# comment", ev), "comment line skipped");
+  CHECK(!replay_parse("   \n", ev), "blank line skipped");
+  CHECK(!replay_parse("", ev), "empty line skipped");
+
+  CHECK(replay_parse("1500,02:11:22:33:44:01,-57,6,2,4660", ev), "valid colon-mac line parses");
+  CHECK(ev.t_ms == 1500, "t_ms parsed");
+  CHECK(ev.bssid[0]==0x02 && ev.bssid[4]==0x44 && ev.bssid[5]==0x01, "bssid bytes parsed");
+  CHECK(ev.rssi == -57, "signed rssi parsed");
+  CHECK(ev.channel == 6 && ev.enc == 2 && ev.ssid_crc == 4660, "channel/enc/crc parsed");
+  CHECK(ev.ssid_len == 0, "absent optional ssid_len defaults 0");
+
+  CHECK(replay_parse("200,021122334402,-80,11,4,65535,7", ev), "no-colon mac + ssid_len parses");
+  CHECK(ev.bssid[0]==0x02 && ev.bssid[5]==0x02, "colon-less mac parsed");
+  CHECK(ev.ssid_crc == 65535 && ev.ssid_len == 7, "max crc + ssid_len parsed");
+
+  CHECK(!replay_parse("1500,02:11:22:33:44,-57,6,2,4660", ev), "short mac (10 nibbles) rejected");
+  CHECK(!replay_parse("1500,ZZ1122334401,-57,6,2,4660", ev), "non-hex mac rejected");
+  CHECK(!replay_parse("1500,021122334401,-57,6", ev), "missing fields rejected");
+
+  // end-to-end: a tiny corpus through the same cache the runner uses.
+  // 3 distinct macs, each sighted twice back-to-back -> 3 unique, 3 suppressed.
+  const char* corpus[] = {
+    "0,02:11:22:33:44:01,-50,1,2,100",
+    "1,02:11:22:33:44:02,-50,6,2,101",
+    "2,02:11:22:33:44:03,-50,11,2,102",
+    "3,02:11:22:33:44:01,-50,1,2,100",
+    "4,02:11:22:33:44:02,-50,6,2,101",
+    "5,02:11:22:33:44:03,-50,11,2,102",
+  };
+  BssidCache c; c.begin();
+  const uint32_t TTL = 180000, REFRESH = 20000; const uint8_t RD = 8;
+  int neu = 0, sup = 0;
+  for (const char* ln : corpus) {
+    CHECK(replay_parse(ln, ev), "corpus line parses");
+    ObsClass k = c.classify(ev.bssid, ev.rssi, ev.channel, ev.ssid_crc, ev.enc,
+                            ev.t_ms, TTL, REFRESH, RD);
+    if (k == OBS_NEW) neu++;
+    if (k == OBS_SUPPRESS) sup++;
+  }
+  CHECK(neu == 3, "replayed corpus yields 3 unique BSSIDs");
+  CHECK(sup == 3, "immediate re-sightings suppressed (dedup win is measurable)");
+}
+
 int main() {
   printf("=== scheduler module unit tests ===\n");
   test_crc();
@@ -195,6 +282,8 @@ int main() {
   test_cache();
   test_ring();
   test_sched();
+  test_metrics();
+  test_replay();
   printf("-----------------------------------\n");
   printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;

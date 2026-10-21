@@ -7,13 +7,19 @@ folder is the Phase-0 groundwork already written and tested.
 
 ## Where things stand
 
-- **Branch:** `yield-scheduling-phase0` (cut from `claude/vibrant-davinci-e193f7`).
-- **Committed, NOT pushed.** One commit: `scheduler: add host-testable yield-driven
-  acquisition modules (Phase 0)`.
+- **Branch:** `yield-scheduling-phase0` (cut from `claude/vibrant-davinci-e193f7`),
+  pushed to `origin`.
+- **Rollout Step 0 (instrumentation) landed.** Added `pig_metrics.h` (the §13 1 Hz
+  metrics line) + `pig_replay.h`/`tests/replay.cpp` (deterministic scan-corpus A/B
+  runner). Still host-only; still **no firmware modified** — everything under
+  `scheduler/`. The one remaining Step-0 item is on-target: wire the metrics
+  `Serial.println` into the worker/coordinator and capture live baselines (needs a
+  board; see Next steps §0).
 - **No existing firmware was modified.** Everything lives under `scheduler/`.
-- **Tests pass:** `./scheduler/tests/run.sh` → 52 checks, 0 failures, clean under
-  `g++` and `clang++` at `-O2`. (Host-only logic tests; no ESP32 toolchain was
-  available in the cloud container.)
+- **Tests pass:** `./scheduler/tests/run.sh` → 85 checks, 0 failures, warning-clean
+  under `g++ -Wall -Wextra`. (Host-only logic tests; on this Windows box they run via
+  WSL/Ubuntu g++ — `wsl bash -lc 'cd .../scheduler/tests && g++ -std=c++17 -I stubs
+  test_all.cpp -o /tmp/t && /tmp/t'`. run.sh itself needs an LF checkout.)
 
 ## What this work is
 
@@ -45,13 +51,19 @@ rollout are in `DESIGN.md`.
 | `bssid_cache.h` | drop-in | 512-slot TTL dedup cache → NEW/CHANGED/REPEAT/SUPPRESS. |
 | `lossy_ring.h` | drop-in | SP/SC ring; drops DELTA before FULL under backpressure. |
 | `yield_sched.h` | needs integration | Coordinator scoring + yield-packed assignment + 3-gate hysteresis (host-testable; `now` is a param). |
-| `tests/` | — | `Arduino.h` shim + `test_all.cpp` + `run.sh`. |
+| `pig_metrics.h` | drop-in (Step 0) | 1 Hz §13 metrics accountant → `PIGM,...` line. No `Serial` dep; `now` is a param. Observes only, no behavior change. |
+| `pig_replay.h` | drop-in (Step 0) | Scan-corpus line parser for deterministic A/B replay. |
+| `tests/` | — | `Arduino.h` shim + `test_all.cpp` + `replay.cpp` (A/B runner) + `run.sh`. |
 | `DESIGN.md` | — | Full 16-section technical design. |
 
 ## Next steps (phased rollout — do them in order, each flag-gated)
 
-0. **Instrumentation only** — add the 1 Hz metrics line (see DESIGN §13) + a scan
-   replay harness. No behavior change. Capture baselines.
+0. **Instrumentation only** — ✅ host modules done (`pig_metrics.h`, `pig_replay.h`,
+   `tests/replay.cpp`). **Remaining (on-target):** include `pig_metrics.h` in the
+   worker + coordinator, feed it from the existing scan/mesh/GPS paths, and
+   `Serial.println(PigMetrics::header())` once + the line at 1 Hz — observe only, no
+   behavior change. Then run a board and capture live baselines before flipping any
+   `PIG_FEAT_*`. Use `tests/replay.cpp` to A/B a captured corpus offline.
 1. **Worker dedup** — wire `BssidCache` into the worker scan path behind
    `PIG_FEAT_DEDUP`. In `PigletNode/PigletNode.ino` (headless C5 worker) and the
    node path of `Arduino Files/piglet_fork/MeshNode.cpp`, replace "send every

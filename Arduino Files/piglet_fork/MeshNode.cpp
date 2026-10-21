@@ -4,6 +4,7 @@
 #include "GPS.h"
 #include "SDUtils.h"
 #include "BLEBridge.h"
+#include "PigMetricsHook.h"   // Phase-0 instrumentation (observe-only)
 #include <esp_now.h>
 #include "esp_wifi.h"
 
@@ -375,6 +376,9 @@ static void jcmkSendText(const String& s) {
   // comment above for why broadcast is required for real JCMK/Biscuit hardware).
   const uint8_t* dest = jcmkCoreIsPiglet ? jcmkCoreMac : JCMK_BCAST;
   esp_err_t err = esp_now_send(dest, (uint8_t*)&msg, sizeof(msg));
+#if PIG_FEAT_METRICS
+  pigMetricsOnMeshTx(sizeof(msg));   // 212 B record frame onto the mesh (observe-only)
+#endif
   if (err != ESP_OK) {
     uint8_t pri; wifi_second_chan_t sec; esp_wifi_get_channel(&pri, &sec);
     Serial.printf("[MESH] TEXT send() rejected: err=%d ch=%d dest=%02X:%02X:%02X:%02X:%02X:%02X\n",
@@ -757,6 +761,11 @@ static void coreParseAndLogText(const char* line) {
   int    ch    = s.substring(p2 + 1, p3).toInt();
   int    rssi  = s.substring(p3 + 1).toInt();  // toInt() stops at next comma
 
+#if PIG_FEAT_METRICS
+  // Observe-only: a record received from a worker is one sighting (Core role).
+  pigMetricsOnRecordStr(bssid.c_str(), rssi, ch, ssid.c_str(), auth.c_str());
+#endif
+
   double lat = 0, lon = 0, altM = 0, accM = 0;
   if (gpsHasFix) {
     lat  = gps.location.lat();
@@ -838,6 +847,17 @@ static void nodeDoScanTick() {
 
   if (n > 0) {
     jcmkNetworksFound += (uint32_t)n;
+
+#if PIG_FEAT_METRICS
+    // Observe-only: count every sighting + uniques for the §13 baseline line.
+    // Runs before the role branch so it covers both legacy and Piglet paths.
+    for (int mi = 0; mi < n; ++mi) {
+      String ssidM = WiFi.SSID(mi);
+      pigMetricsOnScanResult(WiFi.BSSID(mi), (int8_t)WiFi.RSSI(mi),
+                             (uint8_t)WiFi.channel(mi), ssidM.c_str(),
+                             (uint8_t)WiFi.encryptionType(mi));
+    }
+#endif
 
     if (!jcmkCoreIsPiglet) {
       // Legacy immediate-send path: non-Piglet Core (real JCMK hardware or

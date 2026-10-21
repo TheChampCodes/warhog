@@ -13,6 +13,9 @@ unit-tested on a host before integration, per the phased rollout.
 | `bssid_cache.h` | drop-in | Rolling TTL dedup cache (512 slots ≈ 8 KB, open-addressed, approx-LRU eviction). Classifies each sighting NEW / CHANGED / REPEAT / SUPPRESS. |
 | `lossy_ring.h` | drop-in | SP/SC lossy ring. Refuses DELTA records at ≥80% fill, overwrites oldest FULL only when saturated — protects the unique-BSSID metric under load. |
 | `yield_sched.h` | requires integration | Pure coordinator scoring + yield-packed assignment + 3-gate hysteresis. No Arduino/WiFi deps (`now` is a parameter) so it compiles and unit-tests on a host. |
+| `pig_metrics.h` | drop-in | **Phase 0.** The 1 Hz acquisition metrics line (DESIGN §13). Pure accountant — feed it events, emit one `PIGM,...` CSV line per second. No `Serial` dep; `now` is a parameter. Adds no behavior change, only observes. |
+| `pig_replay.h` | drop-in | **Phase 0.** Parser for a captured scan corpus (`t_ms,bssid,rssi,ch,enc,ssid_crc[,ssid_len]`) so A/B runs on identical input, not live RF. Dependency-light hand parser (host + on-target). |
+| `tests/replay.cpp` | tool | **Phase 0.** Host A/B runner: replays a corpus through BASELINE (send-every-sighting) vs DEDUP (`BssidCache` classify) transmit models and prints bytes/unique for each. Byte figures are a documented first-order packetization model; absolute on-wire bytes come from the on-target `mesh_tx` counter. |
 
 ## Local testing (no ESP32 toolchain required)
 
