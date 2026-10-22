@@ -1266,12 +1266,25 @@ void coreModeTick() {
     biscuitCompatSnapshotComplete(sid);
   }
 
-  // 1. Process pending CORE_REQUEST queue (new node registrations)
+  // 1. Process pending CORE_REQUEST queue (new node registrations).
+  // Drain the whole queue first, then reassign AT MOST ONCE — and only if the
+  // roster actually changed. Reassigning per-request (the old behavior) ran the
+  // blocking delay(10)-per-node assignment many times per tick, which stalled the
+  // loop and made the Core screen lag badly whenever nodes were active/churning.
+  static uint32_t coreLastReassignMs = 0;
+  static bool     coreReassignPending = false;
   while (coreReqHead != coreReqTail) {
     uint8_t i = coreReqHead;
     coreReqHead = (coreReqHead + 1) % CORE_REQ_QUEUE;
+    uint8_t before = coreNodeCount;
     coreFindOrAddNode(coreReqBuf[i].mac, coreReqBuf[i].isBiscuit, coreReqBuf[i].band24);
+    if (coreNodeCount != before) coreReassignPending = true;  // a NEW node joined
+  }
+  // Coalesce bursts + rate-limit so reassignment can't thrash the loop.
+  if (coreReassignPending && now - coreLastReassignMs >= 800) {
     coreReassignChannels();
+    coreLastReassignMs  = now;
+    coreReassignPending = false;
   }
 
   // 2. Process pending TEXT records
