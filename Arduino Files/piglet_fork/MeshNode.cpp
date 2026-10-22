@@ -9,6 +9,7 @@
 #include "esp_wifi.h"
 
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
+#include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell/revisit (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
 
 // ================================================================
 //  Protocol constants
@@ -832,9 +833,12 @@ static void nodeDoScanTick() {
       return;
     }
 
-    // Async scan of this single channel only (no blocking)
+    // Scan this single channel. Phase 2 (when enabled) picks a faster active
+    // dwell and forces DFS 5 GHz channels passive; the flag-off path is the
+    // legacy fixed active scan at NODE_SCAN_DWELL_MS, so behavior is unchanged.
+    PigScanPlan plan = pig_scan_plan(channel, PIG_PASS_FAST, 0);
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
-                                    /*passive*/false, NODE_SCAN_DWELL_MS, channel);
+                                    plan.passive, plan.dwell_ms, channel);
     if (rc == WIFI_SCAN_RUNNING || rc == 0) {
       nodeScanActive = true;
     } else {

@@ -25,6 +25,7 @@
 // Scheduler Phase 1: shared worker-side BSSID dedup (flag PIG_FEAT_DEDUP, default
 // OFF -> zero behavior change). See scheduler/pig_dedup.h.
 #include "pig_dedup.h"   // scheduler/ (via -I../scheduler)
+#include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
 
 // ================================================================
 //  Board — XIAO ESP32-C5
@@ -364,8 +365,9 @@ static void scanTick() {
     if (!biscuitChannelCount && chIdx >= NUM_CHANNELS) { scanChOffset++; return; }
     uint8_t channel = biscuitChannelCount ? biscuitChannels[scanChOffset] : CHANNELS[chIdx];
 
+    PigScanPlan plan = pig_scan_plan(channel, PIG_PASS_FAST, 0);  // Phase 2: adaptive dwell + DFS passive (no-op unless flag)
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
-                                   /*passive*/false, SCAN_DWELL_MS, channel);
+                                   plan.passive, plan.dwell_ms, channel);
     if (rc == WIFI_SCAN_RUNNING || rc == 0) {
       scanActive = true;
     } else {

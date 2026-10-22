@@ -39,6 +39,7 @@
 #include <NimBLEDevice.h>
 #include "pig_sprites.h"
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
+#include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
 
 #define FIRMWARE_VERSION "v2.58-c3"
 
@@ -1627,8 +1628,9 @@ static void scanTick() {
 
     uint8_t idx = (scanNumChans > 0) ? scanChans[scanChOffset] : (uint8_t)(s + scanChOffset);
     uint8_t channel = CHANNELS[idx];
+    PigScanPlan plan = pig_scan_plan(channel, PIG_PASS_FAST, 0);  // Phase 2: adaptive dwell + DFS passive (no-op unless flag)
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
-                                   /*passive*/false, SCAN_DWELL_MS, channel);
+                                   plan.passive, plan.dwell_ms, channel);
     if (rc == WIFI_SCAN_RUNNING || rc == 0) {
       scanActive = true;
       scanCurCh  = channel;

@@ -6,6 +6,7 @@
 #include "../yield_sched.h"
 #include "../pig_metrics.h"
 #include "../pig_replay.h"
+#include "../pig_dwell.h"
 
 #include <cstdio>
 #include <cassert>
@@ -283,6 +284,35 @@ static void test_replay() {
   CHECK(sup == 3, "immediate re-sightings suppressed (dedup win is measurable)");
 }
 
+// ---------------------------------------------------------------- pig_dwell (Phase 2)
+static void test_dwell() {
+  printf("[pig_dwell]\n");
+  // DFS gating (ch 52..144 passive-only; compliance invariant)
+  CHECK(!pig_is_dfs(6) && !pig_is_dfs(36), "2.4 + non-DFS 5GHz are not DFS");
+  CHECK(pig_is_dfs(52) && pig_is_dfs(100) && pig_is_dfs(144), "ch 52..144 are DFS");
+  CHECK(!pig_is_dfs(149) && !pig_is_dfs(165), "ch >=149 (U-NII-3) not DFS");
+
+  // fast pass: non-DFS active, DFS passive, short dwell
+  PigScanPlan f6  = pig_scan_plan_adaptive(6,  PIG_PASS_FAST, 0);
+  CHECK(!f6.passive && f6.dwell_ms == PIG_DWELL_FAST_MS, "fast pass ch6 = active + fast dwell");
+  PigScanPlan f52 = pig_scan_plan_adaptive(52, PIG_PASS_FAST, 0);
+  CHECK(f52.passive && f52.dwell_ms == PIG_DWELL_FAST_MS, "fast pass DFS ch52 = passive");
+
+  // revisit: always passive; dwell scales with yield, clamped to max
+  PigScanPlan r0 = pig_scan_plan_adaptive(6, PIG_PASS_REVISIT, 0);
+  CHECK(r0.passive && r0.dwell_ms == PIG_DWELL_REVISIT_MIN_MS, "revisit yield0 = floor, passive");
+  PigScanPlan r5 = pig_scan_plan_adaptive(6, PIG_PASS_REVISIT, 5);
+  CHECK(r5.dwell_ms == PIG_DWELL_REVISIT_MIN_MS + 5 * PIG_DWELL_REVISIT_PER_YIELD_MS,
+        "revisit dwell scales with yield");
+  PigScanPlan rBig = pig_scan_plan_adaptive(6, PIG_PASS_REVISIT, 100);
+  CHECK(rBig.dwell_ms == PIG_DWELL_REVISIT_MAX_MS, "revisit dwell clamps to max");
+
+  // flag-gated wrapper: default host build has the flag OFF -> legacy behavior
+  PigScanPlan leg = pig_scan_plan(6, PIG_PASS_FAST, 0);
+  CHECK(!leg.passive && leg.dwell_ms == PIG_DWELL_LEGACY_MS, "flag OFF -> legacy active fixed dwell");
+  CHECK(pig_revisit_count(10) == 0, "flag OFF -> no revisit phase");
+}
+
 int main() {
   printf("=== scheduler module unit tests ===\n");
   test_crc();
@@ -292,6 +322,7 @@ int main() {
   test_sched();
   test_metrics();
   test_replay();
+  test_dwell();
   printf("-----------------------------------\n");
   printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
