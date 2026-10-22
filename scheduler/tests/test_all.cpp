@@ -7,6 +7,7 @@
 #include "../pig_metrics.h"
 #include "../pig_replay.h"
 #include "../pig_dwell.h"
+#include "../pig_queues.h"
 
 #include <cstdio>
 #include <cassert>
@@ -325,6 +326,37 @@ static void test_dwell() {
   CHECK(pig_revisit_count(10) == 0, "flag OFF -> no revisit phase");
 }
 
+// ---------------------------------------------------------------- pig_queues (Phase 4 groundwork)
+static void test_queues() {
+  printf("[pig_queues]\n");
+  // qObs: lossy RT->nonRT; DELTA dropped before FULL under backpressure
+  PigObsQueue q;
+  pig_obs_t o{};
+  bool allFull = true;
+  for (int i = 0; i < 120; ++i) if (!q.push(o, true)) allFull = false;
+  CHECK(allFull, "qObs: 120 FULLs accepted below capacity");
+  CHECK(!q.push(o, false), "qObs: DELTA refused at >=80% fill");
+  CHECK(q.push(o, true), "qObs: FULL still accepted at high fill (unique metric protected)");
+
+  // qGps: latest-wins mailbox
+  PigMailbox<int> mb;
+  int v;
+  CHECK(!mb.get(v), "qGps mailbox: empty -> get() false");
+  mb.set(5); mb.set(9);
+  CHECK(mb.get(v) && v == 9, "qGps mailbox: latest-wins");
+  uint32_t s1 = mb.seq(); mb.set(1);
+  CHECK(mb.seq() == s1 + 1, "qGps mailbox: seq bumps on set (reader can detect new)");
+
+  // qCmd: reliable ring — reject when full, never overwrite, FIFO
+  ReliableRing<int, 4> rr;
+  bool allPushed = true;
+  for (int i = 0; i < 4; ++i) if (!rr.push(i)) allPushed = false;
+  CHECK(allPushed, "qCmd: pushes under capacity ok");
+  CHECK(!rr.push(99) && rr.rejects() >= 1, "qCmd: reject when full (command never dropped)");
+  int x;
+  CHECK(rr.pop(x) && x == 0, "qCmd: FIFO — oldest command kept, not overwritten");
+}
+
 int main() {
   printf("=== scheduler module unit tests ===\n");
   test_crc();
@@ -335,6 +367,7 @@ int main() {
   test_metrics();
   test_replay();
   test_dwell();
+  test_queues();
   printf("-----------------------------------\n");
   printf("%d checks, %d failures\n", g_checks, g_fail);
   return g_fail ? 1 : 0;
