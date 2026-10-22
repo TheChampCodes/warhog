@@ -9,6 +9,41 @@
 #include "ScreenTelemetry.h"
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
+
+// ================================================================
+//  Scheduler Phase 3 — dynamic yield-weighted channel assignment (flag-gated).
+//  When PIG_FEAT_DYNAMIC_ASSIGN=1 the Core tracks per-channel yield from the
+//  records it receives and hands dual-band nodes their 5 GHz channels in YIELD
+//  order (productive channels first) instead of a flat contiguous split. Stays
+//  band-aware: 2.4 GHz-only (B24) nodes keep {1,6,11} untouched. OFF by default
+//  -> the legacy contiguous split, zero behavior change.
+// ================================================================
+#ifndef PIG_FEAT_DYNAMIC_ASSIGN
+#define PIG_FEAT_DYNAMIC_ASSIGN 0
+#endif
+#if PIG_FEAT_DYNAMIC_ASSIGN
+#include "yield_sched.h"   // scheduler/ (via -I../scheduler)
+static ChanStat  gChanStat[PIG_MAX_CH];   // per-channel yield EWMA (idx matches JCMK_CHANNELS)
+static uint16_t  gChanHits[PIG_MAX_CH];    // records seen per channel this window
+static uint32_t  gYieldLastMs = 0;
+static SchedCfg  gSchedCfg;
+static int chIndexOf(uint8_t ch) {
+  for (uint8_t i = 0; i < JCMK_NUM_CHANNELS; i++) if (JCMK_CHANNELS[i] == ch) return (int)i;
+  return -1;
+}
+// Fold accumulated per-channel record counts into the yield EWMA once per window.
+static void coreYieldUpdate(uint32_t now) {
+  if (gYieldLastMs == 0) { gYieldLastMs = now; return; }
+  if (now - gYieldLastMs < 4000) return;              // 4 s window
+  float dt = (float)(now - gYieldLastMs) / 1000.0f;
+  for (uint8_t i = 0; i < JCMK_NUM_CHANNELS; i++) {
+    uint8_t h = gChanHits[i] > 255 ? 255 : (uint8_t)gChanHits[i];
+    sched_on_yield(gChanStat, i, h, h, dt, gSchedCfg);
+    gChanHits[i] = 0;
+  }
+  gYieldLastMs = now;
+}
+#endif
 #include <esp_now.h>
 #include "esp_wifi.h"
 
@@ -588,8 +623,21 @@ static void coreAssignGroup(const uint8_t* idx, uint8_t n) {
     delay(10);
   }
 
-  // Dual-band nodes: split the 5 GHz channels into contiguous slices.
+  // Dual-band nodes: split the 5 GHz channels into slices.
   if (nDual > 0) {
+#if PIG_FEAT_DYNAMIC_ASSIGN
+    // Phase 3: reorder the 5 GHz channels by yield so productive ones are placed
+    // first; the slicing below then front-loads high-yield channels.
+    uint8_t ch5ord[PIG_MAX_CH];
+    { uint8_t schans[PIG_MAX_CH], rank[PIG_MAX_CH]; ChanStat sstat[PIG_MAX_CH];
+      for (uint8_t j = 0; j < n5; j++) { schans[j] = ch5[j]; sstat[j] = gChanStat[14 + j]; }
+      sched_rank(sstat, schans, n5, millis(), gSchedCfg, rank);
+      for (uint8_t j = 0; j < n5; j++) ch5ord[j] = schans[rank[j]];
+    }
+    const uint8_t* ch5use = ch5ord;
+#else
+    const uint8_t* ch5use = ch5;
+#endif
     uint8_t per = (nDual <= n5) ? (uint8_t)(n5 / nDual) : 1;
     if (per == 0) per = 1;
     for (uint8_t k = 0; k < nDual; k++) {
@@ -601,7 +649,7 @@ static void coreAssignGroup(const uint8_t* idx, uint8_t n) {
       if (s < n5) {
         uint8_t e = (k == nDual - 1) ? (uint8_t)(n5 - 1) : (uint8_t)(s + per - 1);
         if (e >= n5) e = (uint8_t)(n5 - 1);
-        for (uint8_t j = s; j <= e && nl < sizeof(list); j++) list[nl++] = ch5[j];
+        for (uint8_t j = s; j <= e && nl < sizeof(list); j++) list[nl++] = ch5use[j];
         nd.startIdx = (uint8_t)(14 + s);
         nd.endIdx   = (uint8_t)(14 + e);
       }
@@ -835,6 +883,9 @@ static void coreParseAndLogText(const char* line) {
   String auth  = s.substring(p1 + 1, p2);
   int    ch    = s.substring(p2 + 1, p3).toInt();
   int    rssi  = s.substring(p3 + 1).toInt();  // toInt() stops at next comma
+#if PIG_FEAT_DYNAMIC_ASSIGN
+  { int ci = chIndexOf((uint8_t)ch); if (ci >= 0) gChanHits[ci]++; }  // Phase 3: per-channel yield
+#endif
 
   double lat = 0, lon = 0, altM = 0, accM = 0;
   if (gpsHasFix) {
@@ -1265,6 +1316,10 @@ void coreModeTick() {
     }
     biscuitCompatSnapshotComplete(sid);
   }
+
+#if PIG_FEAT_DYNAMIC_ASSIGN
+  coreYieldUpdate(now);   // Phase 3: fold per-channel record counts into yield EWMA
+#endif
 
   // 1. Process pending CORE_REQUEST queue (new node registrations).
   // Drain the whole queue first, then reassign AT MOST ONCE — and only if the

@@ -133,6 +133,20 @@ static inline int sched_assign(ChanStat* stat, const uint8_t* channels, int n_ch
   return placed;
 }
 
+// Fill order[0..n_ch-1] with channel INDICES sorted by score (highest first).
+// Host-testable; firmwares use it to assign productive channels first within a
+// band (keeps band-awareness: caller passes only the channels of one band).
+static inline void sched_rank(const ChanStat* stat, const uint8_t* channels, int n_ch,
+                              uint32_t now, const SchedCfg& c, uint8_t* order) {
+  for (int i = 0; i < n_ch; ++i) order[i] = (uint8_t)i;
+  for (int i = 0; i < n_ch; ++i)
+    for (int j = i + 1; j < n_ch; ++j)
+      if (sched_score(stat[order[j]], channels[order[j]], now, c) >
+          sched_score(stat[order[i]], channels[order[i]], now, c)) {
+        uint8_t t = order[i]; order[i] = order[j]; order[j] = t;
+      }
+}
+
 // Jaccard distance between two channel sets (0 = identical, 1 = disjoint).
 static inline float sched_jaccard(const uint8_t* a, uint8_t na, const uint8_t* b, uint8_t nb) {
   int inter = 0;

@@ -176,6 +176,18 @@ static void test_sched() {
   CHECK(sched_budget_scale(0.0f) > 1.0f, "stationary -> larger budget");
   CHECK(sched_budget_scale(20.0f) < 1.0f, "highway -> smaller budget");
 
+  // sched_rank: channels ordered by score (highest yield first)
+  {
+    uint8_t rchans[4] = {36, 40, 44, 48};
+    ChanStat rstat[4];
+    rstat[0].yield = 0.1f; rstat[1].yield = 5.0f; rstat[2].yield = 0.2f; rstat[3].yield = 2.0f;
+    for (int i = 0; i < 4; ++i) rstat[i].last_scan_ms = now;
+    uint8_t order[4];
+    sched_rank(rstat, rchans, 4, now, cfg, order);
+    CHECK(order[0] == 1, "sched_rank: highest-yield channel ranks first");
+    CHECK(order[3] == 0, "sched_rank: lowest-yield channel ranks last");
+  }
+
   // jaccard
   uint8_t A[3] = {1,6,11}, B[3] = {1,6,11}, C[3] = {2,7,13};
   CHECK(sched_jaccard(A,3,B,3) == 0.0f, "identical sets -> 0 distance");
