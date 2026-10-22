@@ -9,6 +9,7 @@
 #include "ScreenTelemetry.h"
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
+#include "pig_proto.h"   // Scheduler Phase 3: PIG_MSG_ADMIN_EXT explicit channel list (worker parse)
 
 // ================================================================
 //  Scheduler Phase 3 — dynamic yield-weighted channel assignment (flag-gated).
@@ -535,6 +536,17 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
       // parse the assigned channel list, then ack with type=11.
       biscuitSetChannels((const jcmk_text_msg_t*)data);
       biscuitSendControl(11);
+    } else if (type == PIG_MSG_ADMIN_EXT && len >= (int)pig_admin_ext_len(0)) {
+      // Phase 3: explicit yield-packed channel list from a Piglet Core.
+      const pig_admin_ext_t* ax = (const pig_admin_ext_t*)data;
+      if (ax->assign_ver != jcmkAssignVer) {
+        jcmkAssignVer = ax->assign_ver;
+        uint8_t avail = (uint8_t)(len - (int)pig_admin_ext_len(0));
+        uint8_t cnt = ax->n; if (cnt > avail) cnt = avail; if (cnt > JCMK_NUM_CHANNELS) cnt = JCMK_NUM_CHANNELS;
+        for (uint8_t i = 0; i < cnt; i++) biscuitChannels[i] = ax->channels[i];
+        biscuitChannelCount = cnt;
+        nodeScanChOffset = 0;
+      }
     } else if (type == JCMK_MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
       const jcmk_admin_msg_t* adm = (const jcmk_admin_msg_t*)data;
       if (adm->assignment_version != jcmkAssignVer) {

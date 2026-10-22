@@ -40,6 +40,7 @@
 #include "pig_sprites.h"
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
+#include "pig_proto.h"   // Scheduler Phase 3: PIG_MSG_ADMIN_EXT explicit channel list
 
 #define FIRMWARE_VERSION "v2.58-c3"
 
@@ -1468,6 +1469,23 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
     // Piglet/JCMK Core's binary admin still falls through to the branch below.
     const jcmk_text_msg_t* msg = (const jcmk_text_msg_t*)data;
     sendControl(15, msg->len ? (uint8_t)msg->text[0] : msg->counter & 0xFF);
+    lastAdminMs = millis();
+
+  } else if (type == PIG_MSG_ADMIN_EXT && len >= (int)pig_admin_ext_len(0)) {
+    // ---- Phase 3: explicit yield-packed channel list from a Piglet Core ----
+    // ADMIN_EXT carries channel NUMBERS; c3's scan walks CHANNELS[] indices, so map them.
+    const pig_admin_ext_t* ax = (const pig_admin_ext_t*)data;
+    if (ax->assign_ver != assignVer) {
+      assignVer = ax->assign_ver;
+      uint8_t avail = (uint8_t)(len - (int)pig_admin_ext_len(0));
+      uint8_t nch = ax->n; if (nch > avail) nch = avail;
+      uint8_t cnt = 0;
+      for (uint8_t i = 0; i < nch && cnt < NUM_CHANNELS; i++)
+        for (uint8_t j = 0; j < NUM_CHANNELS; j++)
+          if (CHANNELS[j] == ax->channels[i]) { scanChans[cnt++] = j; break; }
+      scanNumChans = cnt;
+      scanChOffset = 0;
+    }
     lastAdminMs = millis();
 
   } else if (type == MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {

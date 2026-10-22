@@ -41,6 +41,19 @@ static void test_proto() {
   CHECK(sizeof(pig_obs_t) == 22, "obs fixed part is 22B");
   // one batch payload holds 202 bytes -> >= 9 fixed-part deltas or ~7 full records.
   CHECK(202 / (int)sizeof(pig_obs_t) >= 9, "payload fits >=9 delta records");
+
+  // PIG_MSG_ADMIN_EXT explicit-channel-list message
+  CHECK(sizeof(pig_admin_ext_t) == 52, "admin-ext is 52B");
+  CHECK(pig_admin_ext_len(0) == 12 && pig_admin_ext_len(11) == 23,
+        "admin-ext wire length = 12B header + n channels");
+  pig_admin_ext_t ae{};
+  memcpy(ae.magic, "ENOW", 4); ae.type = PIG_MSG_ADMIN_EXT; ae.assign_ver = 7;
+  ae.n = 3; ae.channels[0] = 1; ae.channels[1] = 6; ae.channels[2] = 11;
+  const uint8_t* raw = (const uint8_t*)&ae;
+  CHECK(raw[4] == PIG_MSG_ADMIN_EXT, "admin-ext type byte at offset 4 (legacy magic/type-prefix compatible)");
+  const pig_admin_ext_t* p = (const pig_admin_ext_t*)raw;
+  CHECK(p->n == 3 && p->channels[0] == 1 && p->channels[2] == 11 && p->assign_ver == 7,
+        "admin-ext round-trips through raw bytes");
 }
 
 // ---------------------------------------------------------------- BSSID cache

@@ -26,6 +26,7 @@
 // OFF -> zero behavior change). See scheduler/pig_dedup.h.
 #include "pig_dedup.h"   // scheduler/ (via -I../scheduler)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
+#include "pig_proto.h"   // Scheduler Phase 3: PIG_MSG_ADMIN_EXT explicit channel list
 
 // ================================================================
 //  Board — XIAO ESP32-C5
@@ -286,6 +287,19 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
     lastAdminMs = millis();
     if (plainBiscuit) biscuitSetChannels((const jcmk_text_msg_t*)data);
     sendControl(11);
+
+  } else if (type == PIG_MSG_ADMIN_EXT && len >= (int)pig_admin_ext_len(0)) {
+    // ---- Phase 3: explicit yield-packed channel list from a Piglet Core ----
+    const pig_admin_ext_t* ax = (const pig_admin_ext_t*)data;
+    if (ax->assign_ver != assignVer) {
+      assignVer = ax->assign_ver;
+      uint8_t avail = (uint8_t)(len - (int)pig_admin_ext_len(0));
+      uint8_t cnt = ax->n; if (cnt > avail) cnt = avail; if (cnt > NUM_CHANNELS) cnt = NUM_CHANNELS;
+      for (uint8_t i = 0; i < cnt; i++) biscuitChannels[i] = ax->channels[i];
+      biscuitChannelCount = cnt;
+      scanChOffset = 0;
+    }
+    lastAdminMs = millis();
 
   } else if (type == MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
     // ---- JCMK binary admin (Piglet Core, JCMK Core) ----

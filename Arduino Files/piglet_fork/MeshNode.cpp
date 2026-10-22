@@ -10,6 +10,42 @@
 
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell/revisit (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
+#include "pig_proto.h"   // PIG_MSG_ADMIN_EXT / pig_admin_ext_t (worker parse is unconditional)
+
+// ================================================================
+//  Scheduler Phase 3 — dynamic yield assignment via PIG_MSG_ADMIN_EXT (flag-gated).
+//  When PIG_FEAT_DYNAMIC_ASSIGN=1 the Core tracks per-channel yield from received
+//  records and hands each confirmed Piglet node an EXPLICIT yield-ordered channel
+//  list (pig_admin_ext_t) instead of a contiguous range — the non-contiguous
+//  yield-packing DESIGN §4 calls for. Every node also gets the 2.4 anchor {1,6,11}
+//  so 2.4 GHz-only hardware stays useful (it self-filters 5 GHz). Legacy JCMK/Biscuit
+//  peers keep the contiguous-range ADMIN. OFF -> legacy even split, zero change.
+// ================================================================
+#ifndef PIG_FEAT_DYNAMIC_ASSIGN
+#define PIG_FEAT_DYNAMIC_ASSIGN 0
+#endif
+#if PIG_FEAT_DYNAMIC_ASSIGN
+#include "yield_sched.h"   // scheduler/ (via -I../../scheduler)
+static ChanStat  gChanStat[PIG_MAX_CH];
+static uint16_t  gChanHits[PIG_MAX_CH];
+static uint32_t  gYieldLastMs = 0;
+static SchedCfg  gSchedCfg;
+static int chIndexOf(uint8_t ch) {
+  for (uint8_t i = 0; i < JCMK_NUM_CHANNELS; i++) if (JCMK_CHANNELS[i] == ch) return (int)i;
+  return -1;
+}
+static void coreYieldUpdate(uint32_t now) {
+  if (gYieldLastMs == 0) { gYieldLastMs = now; return; }
+  if (now - gYieldLastMs < 4000) return;              // 4 s window
+  float dt = (float)(now - gYieldLastMs) / 1000.0f;
+  for (uint8_t i = 0; i < JCMK_NUM_CHANNELS; i++) {
+    uint8_t h = gChanHits[i] > 255 ? 255 : (uint8_t)gChanHits[i];
+    sched_on_yield(gChanStat, i, h, h, dt, gSchedCfg);
+    gChanHits[i] = 0;
+  }
+  gYieldLastMs = now;
+}
+#endif
 
 // ================================================================
 //  Protocol constants
@@ -582,6 +618,26 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
       jcmkCoreLastSeenMs = millis();
       if (biscuitPlainReplyPending) biscuitSetChannels((const jcmk_text_msg_t*)data);
       biscuitSendControl(11);
+    } else if (type == PIG_MSG_ADMIN_EXT && len >= (int)pig_admin_ext_len(0)) {
+      // Phase 3: explicit yield-packed channel list from a Piglet Core. Feed it into
+      // the same biscuitChannels[] path the scan loop already uses for explicit lists.
+      jcmkCoreLastSeenMs = millis();
+      if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
+      const pig_admin_ext_t* ax = (const pig_admin_ext_t*)data;
+      if (ax->assign_ver != jcmkAssignVer) {
+        jcmkAssignVer = ax->assign_ver;
+        uint8_t avail = (uint8_t)(len - (int)pig_admin_ext_len(0));   // bytes available for channels
+        uint8_t cnt   = ax->n;
+        if (cnt > avail) cnt = avail;
+        if (cnt > JCMK_NUM_CHANNELS) cnt = JCMK_NUM_CHANNELS;
+        for (uint8_t i = 0; i < cnt; i++) biscuitChannels[i] = ax->channels[i];
+        biscuitChannelCount = cnt;
+        nodeScanChOffset = 0;   // restart the scan cycle on the new list
+      }
+      if (jcmkCoreIsPiglet) {
+        jcmkSlotIndex = ax->slot_index;
+        jcmkSlotCount = (ax->slot_count > 0) ? ax->slot_count : 1;
+      }
     } else if (type == JCMK_MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
       jcmkCoreLastSeenMs = millis();
       if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
@@ -674,6 +730,32 @@ static void coreReassignChannels() {
   // - JCMK:    jcmk_admin_msg_t (type=5, packed binary channel indices)
   for (uint8_t n = 0; n < count; n++) {
     uint8_t slot = slots[n];
+#if PIG_FEAT_DYNAMIC_ASSIGN
+    if (coreNodes[slot].isPiglet) {
+      // Yield-packed explicit list (PIG_MSG_ADMIN_EXT): every node gets the 2.4
+      // anchor {1,6,11} plus a round-robin slice of the yield-ordered 5 GHz set,
+      // so productive channels are covered and 2.4-only nodes stay useful.
+      uint8_t n5 = (uint8_t)(JCMK_NUM_CHANNELS - 14);
+      uint8_t ord5[PIG_MAX_CH], schans[PIG_MAX_CH], rank[PIG_MAX_CH]; ChanStat sstat[PIG_MAX_CH];
+      for (uint8_t j = 0; j < n5; j++) { schans[j] = JCMK_CHANNELS[14 + j]; sstat[j] = gChanStat[14 + j]; }
+      sched_rank(sstat, schans, n5, millis(), gSchedCfg, rank);
+      for (uint8_t j = 0; j < n5; j++) ord5[j] = schans[rank[j]];
+      pig_admin_ext_t ax{};
+      memcpy(ax.magic, JCMK_MAGIC, 4);
+      ax.type        = PIG_MSG_ADMIN_EXT;
+      ax.assign_ver  = coreAssignVer;
+      ax.slot_index  = coreNodes[slot].slotIndex;
+      ax.slot_count  = corePigletSlotCount;
+      ax.scan_policy = PIG_SP_ACTIVE_ALLOWED | PIG_SP_PASSIVE_5G;
+      uint8_t k = 0;
+      ax.channels[k++] = 1; ax.channels[k++] = 6; ax.channels[k++] = 11;        // 2.4 anchor
+      for (uint8_t j = n; j < n5 && k < PIG_ADMIN_EXT_MAXCH; j += count) ax.channels[k++] = ord5[j];
+      ax.n = k;
+      esp_now_send(coreNodes[slot].mac, (uint8_t*)&ax, pig_admin_ext_len(ax.n));
+      delay(10);
+      continue;
+    }
+#endif
     if (coreNodes[slot].isBiscuit) {
       coreSendBiscuitRoleAndConfig(coreNodes[slot].mac,
                                    coreNodes[slot].startIdx,
@@ -764,6 +846,9 @@ static void coreParseAndLogText(const char* line) {
   int    ch    = s.substring(p2 + 1, p3).toInt();
   int    rssi  = s.substring(p3 + 1).toInt();  // toInt() stops at next comma
 
+#if PIG_FEAT_DYNAMIC_ASSIGN
+  { int ci = chIndexOf((uint8_t)ch); if (ci >= 0) gChanHits[ci]++; }  // Phase 3: per-channel yield
+#endif
 #if PIG_FEAT_METRICS
   // Observe-only: a record received from a worker is one sighting (Core role).
   pigMetricsOnRecordStr(bssid.c_str(), rssi, ch, ssid.c_str(), auth.c_str());
@@ -1128,6 +1213,9 @@ void exitCoreMode() {
 void coreModeTick() {
   if (!meshCoreActive) return;
   uint32_t now = millis();
+#if PIG_FEAT_DYNAMIC_ASSIGN
+  coreYieldUpdate(now);   // Phase 3: fold per-channel record counts into yield EWMA
+#endif
 
   // 1. Process pending CORE_REQUEST queue (new node registrations)
   while (coreReqHead != coreReqTail) {

@@ -24,6 +24,7 @@
 #include <WiFi.h>
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
+#include "pig_proto.h"   // Scheduler Phase 3: PIG_MSG_ADMIN_EXT explicit channel list
 #include <WebServer.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
@@ -2823,6 +2824,20 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
       jcmkCoreLastSeenMs = millis();
       if (biscuitPlainReplyPending) biscuitSetChannels(data, len);
       biscuitSendControl(11);
+    } else if (type == PIG_MSG_ADMIN_EXT && len >= (int)pig_admin_ext_len(0)) {
+      // Phase 3: explicit yield-packed channel list from a Piglet Core.
+      jcmkCoreLastSeenMs = millis();
+      if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
+      const pig_admin_ext_t* ax = (const pig_admin_ext_t*)data;
+      if (ax->assign_ver != jcmkAssignVer) {
+        jcmkAssignVer = ax->assign_ver;
+        uint8_t avail = (uint8_t)(len - (int)pig_admin_ext_len(0));
+        uint8_t cnt = ax->n; if (cnt > avail) cnt = avail; if (cnt > JCMK_NUM_CHANNELS) cnt = JCMK_NUM_CHANNELS;
+        for (uint8_t i = 0; i < cnt; i++) biscuitChannels[i] = ax->channels[i];
+        biscuitChannelCount = cnt;
+        nodeScanChOffset = 0;
+      }
+      if (jcmkCoreIsPiglet) { jcmkSlotIndex = ax->slot_index; jcmkSlotCount = (ax->slot_count > 0) ? ax->slot_count : 1; }
     } else if (type == JCMK_MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
       jcmkCoreLastSeenMs = millis();
       if (jcmkCoreIsPiglet) jcmkCycleEpochMs = millis();
