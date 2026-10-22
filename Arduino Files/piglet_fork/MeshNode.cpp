@@ -13,6 +13,65 @@
 #include "pig_proto.h"   // PIG_MSG_ADMIN_EXT / pig_admin_ext_t (worker parse is unconditional)
 
 // ================================================================
+//  Scheduler Phase 4 (Step 1) — move per-record SD logging off the main loop
+//  onto a core-1 FreeRTOS task, so the RT path (ESP-NOW RX ring drain + scan)
+//  stays responsive while the SD card stalls. Flag-gated PIG_FEAT_CORE_ISO
+//  (default OFF -> inline write, zero change). Uses a FreeRTOS queue (cross-core
+//  safe, unlike a hand-rolled ring) that drops newest on overflow (lossy: better
+//  to lose a record than block the loop). Core-mode only, so the task is the sole
+//  SD writer while active -> no SD mutex needed on this board (OLED is I2C).
+// ================================================================
+#ifndef PIG_FEAT_CORE_ISO
+#define PIG_FEAT_CORE_ISO 0
+#endif
+#if PIG_FEAT_CORE_ISO
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+struct PigLogRec {
+  char   mac[20], ssid[34], auth[20], ts[28];
+  int16_t ch; int8_t rssi; double lat, lon, alt, acc;
+};
+static QueueHandle_t gLogQ      = nullptr;
+static TaskHandle_t  gStoreTask = nullptr;
+static volatile bool gStoreRun  = false;
+static void tStore(void*) {
+  PigLogRec r;
+  while (gStoreRun) {
+    if (xQueueReceive(gLogQ, &r, pdMS_TO_TICKS(20)) == pdTRUE)
+      appendWigleRow(String(r.mac), String(r.ssid), String(r.auth), String(r.ts),
+                     r.ch, r.rssi, r.lat, r.lon, r.alt, r.acc);
+  }
+  vTaskDelete(nullptr);
+}
+static void coreStoreStart() {
+  if (gStoreTask) return;
+  if (!gLogQ) gLogQ = xQueueCreate(48, sizeof(PigLogRec));
+  gStoreRun = true;
+  xTaskCreatePinnedToCore(tStore, "tStore", 6144, nullptr, 3, &gStoreTask, 1);  // core 1, prio 3
+  Serial.println("[CORE-ISO] SD store task started (core 1)");
+}
+static void coreStoreStop() {
+  if (!gStoreTask) return;
+  gStoreRun = false;   // task self-deletes on its next wake
+  gStoreTask = nullptr;
+}
+// Returns true if queued (false = dropped under backpressure).
+static bool coreStoreEnqueue(const String& mac, const String& ssid, const String& auth,
+                             const String& ts, int ch, int rssi,
+                             double lat, double lon, double alt, double acc) {
+  if (!gLogQ) return false;
+  PigLogRec r{};
+  snprintf(r.mac,  sizeof(r.mac),  "%s", mac.c_str());
+  snprintf(r.ssid, sizeof(r.ssid), "%s", ssid.c_str());
+  snprintf(r.auth, sizeof(r.auth), "%s", auth.c_str());
+  snprintf(r.ts,   sizeof(r.ts),   "%s", ts.c_str());
+  r.ch = (int16_t)ch; r.rssi = (int8_t)rssi; r.lat = lat; r.lon = lon; r.alt = alt; r.acc = acc;
+  return xQueueSend(gLogQ, &r, 0) == pdTRUE;   // 0 timeout -> drop if full, never block
+}
+#endif
+
+// ================================================================
 //  Scheduler Phase 3 — dynamic yield assignment via PIG_MSG_ADMIN_EXT (flag-gated).
 //  When PIG_FEAT_DYNAMIC_ASSIGN=1 the Core tracks per-channel yield from received
 //  records and hands each confirmed Piglet node an EXPLICIT yield-ordered channel
@@ -862,11 +921,18 @@ static void coreParseAndLogText(const char* line) {
     accM = gps.hdop.hdop();
   }
   String ts = iso8601NowUTC();
+#if PIG_FEAT_CORE_ISO
+  // Phase 4: hand the SD write to the core-1 store task (non-blocking). Count on
+  // enqueue; the task applies the same whitelist filter when it writes.
+  coreStoreEnqueue(bssid, ssid, auth, ts, ch, rssi, lat, lon, altM, accM);
+  coreRecordsRx++;
+#else
   // Upstream: appendWigleRow() now returns false for whitelisted/failed rows,
   // which must not inflate the received-record count.
   if (appendWigleRow(bssid, ssid, auth, ts, ch, rssi, lat, lon, altM, accM)) {
     coreRecordsRx++;
   }
+#endif
 
   // Mirror the same record to the BLE bridge (enqueue only; notified in tick).
   // The BLE feed carries every observed record regardless of CSV whitelisting.
@@ -1189,11 +1255,17 @@ void enterCoreMode() {
   // under WiFi/BLE coexistence alongside the active ESP-Now mesh.
   bleBridgeBegin();
 
+#if PIG_FEAT_CORE_ISO
+  coreStoreStart();   // Phase 4: SD logging runs on core 1 while Core mode is active
+#endif
   Serial.println("[CORE] Ready — listening for nodes on ch 6");
 }
 
 void exitCoreMode() {
   Serial.println("[CORE] Exiting Core mode");
+#if PIG_FEAT_CORE_ISO
+  coreStoreStop();
+#endif
   // Tear down BLE first so the controller RAM is freed before the WiFi reset.
   bleBridgeStop();
   if (meshCoreActive) esp_now_deinit();
