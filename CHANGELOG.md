@@ -7,6 +7,32 @@ the base firmware history.
 
 ## Unreleased
 
+### Yield-driven mesh scheduler (Phases 0–3, flag-gated, default OFF)
+A staged, opt-in rework of mesh acquisition toward yield-driven scheduling. **Every phase
+is OFF by default (byte-identical to before)** and compiles on all node firmwares; enable one
+by building with its `-DPIG_FEAT_*=1` flag. Host-tested (108 checks: `./scheduler/tests/run.sh`);
+full design in `scheduler/DESIGN.md`, Phase-4 plan in `scheduler/PHASE4_PLAN.md`.
+
+- **Phase 0 — instrumentation** (`PIG_FEAT_METRICS`): a 1 Hz `PIGM,…` metrics line (DESIGN §13)
+  on the XIAO C5 Core + a host A/B replay harness. Validated on hardware (212 B/unique baseline).
+- **Phase 1 — worker BSSID dedup** (`PIG_FEAT_DEDUP`, all node firmwares): suppresses redundant
+  repeat sightings before a node transmits (`scheduler/pig_dedup.h`). **~29% mesh airtime saved**
+  (stationary) measured on hardware; surfaces as `supp_pct` on the Core's PIGM line.
+- **Phase 2 — adaptive dwell + DFS-passive** (`PIG_FEAT_ADAPTIVE_DWELL`, all node firmwares):
+  faster active dwell + DFS 5 GHz (ch 52–144) forced passive for compliance
+  (`scheduler/pig_dwell.h`). Yield-weighted passive revisit deferred.
+- **Phase 3 — dynamic yield assignment** (`PIG_FEAT_DYNAMIC_ASSIGN`, CYD coordinator): orders
+  each node's 5 GHz channels by observed yield (productive first); stays band-aware so
+  2.4 GHz-only nodes keep 1/6/11.
+- **Phase 4 — core isolation**: groundwork only (`scheduler/pig_queues.h` + `PHASE4_PLAN.md`);
+  the FreeRTOS task rewrite is bench-gated (needs multi-node load validation).
+
+Phases 1–3 ON-paths and Phase 4 await validation on a stable multi-node bench.
+
+### CYD Core-mode screen lag fix
+Channel reassignment ran a blocking `delay(10)`-per-node pass on *every* `CORE_REQUEST`, stalling
+the loop; now coalesced to at most one reassign per 800 ms and only on an actual roster change.
+
 ### CYD mesh: sub-clusters, cluster UI & wardriving profiles
 On-device cluster management for the **Freenove S3 CYD (HAM UI4)** firmware, in Core mode:
 - **Cluster view** — the Home STATUS card (in Core mode) drills into the live node list.
