@@ -15,10 +15,11 @@ This repository builds upon upstream [Hamspiced/piglet](https://github.com/Hamsp
 
 | Feature / Subsystem | Upstream (`Hamspiced/piglet`) | This Fork (`olosnoks/piglet`) |
 |---|---|---|
-| **Supported Hardware** | Seeed XIAO (S3, C5, C6, C3), T-Dongle C5, Waveshare C6 Mini | **+ Freenove S3 CYD (2.8″ Touch)**<br>**+ Guition JC8048W550 (5.0″ 800×480 RGB IPS)**<br>**+ PigletNode C3 (0.42″ OLED Micro-Node)** |
+| **Supported Hardware** | Seeed XIAO (S3, C5, C6, C3), T-Dongle C5, Waveshare C6 Mini | **+ Freenove S3 CYD (2.4″ Touch)**<br>**+ Guition JC8048W550 (5.0″ 800×480 RGB IPS)**<br>**+ PigletNode C3 (0.42″ OLED Micro-Node)** |
 | **Offensive & Security Tools** | None (pure wardriving & discovery) | **ESP32 Marauder Port:** Raw 802.11 frame injection, beacon spam, deauth attacks, deauth detection, PMKID capture with Hashcat 22000 export, WPS vulnerability checks, and raw PCAP logging to SD |
 | **Bluetooth Low Energy (BLE)** | Not supported | **BLE Wardriving & Sniffers:** AirTag/FindMy tracking, Flipper Zero detection, Pwnagotchi detection, and multi-platform BLE advertisement floods (Apple, SwiftPair, Samsung, Fast Pair) |
 | **Mesh Ecosystem Support** | JCMK Wardriver ESP-NOW protocol + Biscuit Pro mesh interop (incl. plain-reply, v2.63) | Same mesh base **+ Biscuit Manager BLE/GATT layer** (`BiscuitCompat.cpp`) and **Core BLE Bridge** (`BLEBridge.cpp`) for forwarding BLE records to companion apps |
+| **Adaptive Mesh Scheduler** | Static even channel-slicing across nodes | **Yield-driven acquisition suite** ([`scheduler/`](scheduler/)): worker BSSID dedup (~29 % airtime saved stationary), adaptive dwell with DFS-passive compliance, dynamic yield-weighted channel assignment (`PIG_MSG_ADMIN_EXT`), and dual-core SD-logging isolation. Flag-gated (`PIG_FEAT_*`), host-unit-tested (123 checks), and **on by default** in released builds |
 | **Visuals & Graphics Engine** | Standard OLED text/icons and static pig screen | **PigWorld Graphics Engine:** 1-bit pixel art animation loop, dynamic multi-node flocking visualization (scaling 1 to 6 pigs concurrently), and 2.4 GHz channel occupancy histograms |
 | **Web Flasher** | Documentation references to IDEs | **Integrated Web Flasher:** Browser-based flashing via WebSerial (ESP Web Tools) with real-time SVG device screen previews |
 | **Build Infrastructure** | Arduino IDE sketches | **Reproducible PlatformIO Environments:** Standardized across all targets with pinned `pioarduino` 55.03.39 (ESP-IDF 5.x / Arduino 3.x) toolchains |
@@ -31,7 +32,7 @@ Each board target has a dedicated firmware project and full documentation:
 
 | Hardware Project | SoC & Arch | Display & Touch | Wi-Fi Bands | GPS / SD | Primary Mesh Role | Documentation |
 |---|---|---|---|---|---|---|
-| **[Freenove S3 CYD](Piglet_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 (Xtensa Dual-Core) | 2.8″ 240×320 SPI TFT<br>Capacitive Touch | 2.4 GHz | UART GPS<br>4-bit SDIO | Standalone / Coordinator / Security Suite | [CYD Guide](Piglet_Freenove_S3_CYD_HAM_UI4/README.md) |
+| **[Freenove S3 CYD](Piglet_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 (Xtensa Dual-Core) | 2.4″ 240×320 SPI TFT<br>Capacitive Touch | 2.4 GHz | UART GPS<br>4-bit SDIO | Standalone / Coordinator / Security Suite | [CYD Guide](Piglet_Freenove_S3_CYD_HAM_UI4/README.md) |
 | **[Guition JC8048W550](Piglet_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 N16R8 | 5.0″ 800×480 RGB IPS<br>Goodix GT911 Touch | 2.4 GHz | UART GPS<br>SPI SD | Standalone / Coordinator / Dashboard | [Guition Guide](Piglet_Freenove_S3_CYD_HAM_UI4/README.md) |
 | **[PigletNode C3](c3_node/)** | ESP32-C3 (RISC-V Single-Core) | 0.42″ 72×40 SSD1306 OLED<br>Physical Button | 2.4 GHz | Headless<br>(No GPS/SD) | Worker Node (Autonomous ESP-NOW) | [C3 Node Guide](c3_node/README.md) |
 | **[Piglet Core (XIAO C5)](Arduino%20Files/piglet_fork/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ SSD1306 OLED<br>Physical Button | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART GPS<br>SPI SD | Central Coordinator / Standalone | [Core Guide](Arduino%20Files/piglet_fork/README.md) |
@@ -50,7 +51,7 @@ piglet/
 ├── c3_node/                    # ESP32-C3 0.42″ OLED PigletNode with flocking graphics
 │   ├── core-patch/             # Patch adding BLE WiGLE logging to Piglet Core
 │   └── docs/                   # Sprite pipelines and visual assets
-├── Piglet_Freenove_S3_CYD_HAM_UI4/ # CYD 2.8″ & Guition 5″ touch suite (Marauder/PCAP/PMKID/BLE)
+├── Piglet_Freenove_S3_CYD_HAM_UI4/ # CYD 2.4″ & Guition 5″ touch suite (Marauder/PCAP/PMKID/BLE)
 ├── PigletNode/                 # Headless dual-band XIAO C5 mesh worker node
 ├── TDongleC5_Piglet/           # LilyGo T-Dongle C5 USB-A standalone build
 ├── waveshareDisplayMiniPiglet/ # Waveshare ESP32-C6 1.47″ vertical color TFT build
@@ -92,7 +93,14 @@ pio run -t upload
 
 ## 5. Wireless Mesh Architecture
 
-Piglet uses an ESP-NOW mesh protocol operating on channel 6:
+Piglet uses an ESP-NOW mesh protocol operating on channel 6. The Core no longer
+hands workers a flat, even slice of the channel list: with the **yield-driven
+scheduler** live (see [`scheduler/`](scheduler/)), it tracks per-channel yield
+from the records it receives and assigns each node an explicit, yield-ordered
+channel list (`PIG_MSG_ADMIN_EXT`), while workers dedup repeat BSSIDs before
+transmitting and dwell adaptively (fast active pass, DFS 5 GHz always passive).
+Every feature is flag-gated (`PIG_FEAT_*`) and falls back to the legacy even
+split when disabled.
 ```
            ┌──────────────────────────────────────────────┐
            │                 Piglet Core                  │

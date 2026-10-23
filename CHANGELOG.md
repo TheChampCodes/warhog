@@ -7,10 +7,11 @@ the base firmware history.
 
 ## Unreleased
 
-### Yield-driven mesh scheduler (Phases 0–3, flag-gated, default OFF)
-A staged, opt-in rework of mesh acquisition toward yield-driven scheduling. **Every phase
-is OFF by default (byte-identical to before)** and compiles on all node firmwares; enable one
-by building with its `-DPIG_FEAT_*=1` flag. Host-tested (108 checks: `./scheduler/tests/run.sh`);
+### Yield-driven mesh scheduler — now LIVE (on by default)
+A staged rework of mesh acquisition toward yield-driven scheduling. The feature flags are now
+**enabled by default in the released flasher builds** (set per board in `platformio.ini`
+`build_flags`); each still compiles to the legacy behavior when its `-DPIG_FEAT_*=0`, so any
+one phase can be disabled in isolation. Host-tested (123 checks: `./scheduler/tests/run.sh`);
 full design in `scheduler/DESIGN.md`, Phase-4 plan in `scheduler/PHASE4_PLAN.md`.
 
 - **Phase 0 — instrumentation** (`PIG_FEAT_METRICS`): a 1 Hz `PIGM,…` metrics line (DESIGN §13)
@@ -20,14 +21,20 @@ full design in `scheduler/DESIGN.md`, Phase-4 plan in `scheduler/PHASE4_PLAN.md`
   (stationary) measured on hardware; surfaces as `supp_pct` on the Core's PIGM line.
 - **Phase 2 — adaptive dwell + DFS-passive** (`PIG_FEAT_ADAPTIVE_DWELL`, all node firmwares):
   faster active dwell + DFS 5 GHz (ch 52–144) forced passive for compliance
-  (`scheduler/pig_dwell.h`). Yield-weighted passive revisit deferred.
-- **Phase 3 — dynamic yield assignment** (`PIG_FEAT_DYNAMIC_ASSIGN`, CYD coordinator): orders
-  each node's 5 GHz channels by observed yield (productive first); stays band-aware so
-  2.4 GHz-only nodes keep 1/6/11.
-- **Phase 4 — core isolation**: groundwork only (`scheduler/pig_queues.h` + `PHASE4_PLAN.md`);
-  the FreeRTOS task rewrite is bench-gated (needs multi-node load validation).
+  (`scheduler/pig_dwell.h`). The two-pass yield-weighted **revisit FSM** (`PigSweep`) is now a
+  pure, host-tested module; wiring it into the live scan loops stays a follow-up.
+- **Phase 3 — dynamic yield assignment** (`PIG_FEAT_DYNAMIC_ASSIGN`, Core: piglet_fork + CYD):
+  tracks per-channel yield and hands each node an explicit yield-ordered channel list
+  (`PIG_MSG_ADMIN_EXT`); stays band-aware so 2.4 GHz-only nodes keep 1/6/11.
+- **Phase 4 Step 1 — core-isolated SD logging** (`PIG_FEAT_CORE_ISO`, piglet_fork + CYD/W550):
+  the Core's per-record WiGLE SD write moves to a FreeRTOS task (core 0 on the dual-core S3) so
+  the ESP-NOW RX drain keeps running; on the CYD the SD card and TFT share one SPI bus, so a
+  recursive `gSpiBusMutex` (`SpiBusLock.h`) serializes the display flush against the SD task.
+  Instrumented via a 5 s `[CORE-ISO] SD store q: depth/drops` line.
 
-Phases 1–3 ON-paths and Phase 4 await validation on a stable multi-node bench.
+**Caution:** `PIG_FEAT_CORE_ISO` is dual-core threading whose ON path has not been validated on
+hardware; it was enabled by owner decision. Watch the `[CORE-ISO]` queue line under live node
+load and disable the flag if a board becomes unstable.
 
 ### CYD Core-mode screen lag fix
 Channel reassignment ran a blocking `delay(10)`-per-node pass on *every* `CORE_REQUEST`, stalling

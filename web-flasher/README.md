@@ -2,6 +2,8 @@
 
 A browser-based firmware installer for the Piglet wardriving ecosystem. Powered by **ESP Web Tools** (`web-serial`), it allows users to flash pre-compiled Piglet firmware directly to any supported ESP32 board over a USB cable—without installing Python, Arduino IDE, PlatformIO, or vendor drivers.
 
+> **Firmware note:** the fork-built targets (every card except the upstream-tracking T-Dongle C5) now ship with the [yield-driven mesh scheduler](../scheduler/) **on by default** — worker BSSID dedup, adaptive dwell, dynamic yield-weighted channel assignment, and (on the dual-band/dual-core Core boards) core-isolated SD logging.
+
 ---
 
 ## 1. Supported Firmware Targets & Manifests
@@ -10,7 +12,7 @@ The flasher automatically serves manifest configurations and binaries from [`man
 
 | Board Name | Chip Target | Description | Manifest File |
 |---|---|---|---|
-| **Freenove S3 CYD** | ESP32-S3 | 2.4 GHz scanning, GPS, SD logging, 2.8″ touch display (HAM UI4 suite) | `manifests/freenove-s3-cyd-ham-ui4.json` |
+| **Freenove S3 CYD** | ESP32-S3 | 2.4 GHz scanning, GPS, SD logging, 2.4″ touch display (HAM UI4 suite) | `manifests/freenove-s3-cyd-ham-ui4.json` |
 | **Guition JC8048W550** | ESP32-S3 | 5.0″ 800×480 RGB IPS panel, GT911 touch, GPS, SD logging | `manifests/guition-jc8048w550.json` |
 | **PigletNode C3** | ESP32-C3 | Minimal 2.4 GHz ESP-NOW mesh worker node with 0.42″ OLED & animated PigWorld | `manifests/esp32c3_oled.json` |
 | **Piglet Core (XIAO C5)** | ESP32-C5 | Dual-band 2.4/5 GHz Wi-Fi 6, GPS, SD, OLED, BLE Bridge | `manifests/xiao_c5.json` (fork) · `manifests/xiao_c5-ham.json` (official) |
