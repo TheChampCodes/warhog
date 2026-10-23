@@ -2,6 +2,8 @@
 
 #include <math.h>
 
+#include "SpiBusLock.h"   // Scheduler Phase 4: present() shares the SD SPI bus with the core-0 log task
+
 #include "BatteryMonitor.h"
 #include "BleScanner.h"
 #include "AirTagMonitor.h"
@@ -296,6 +298,7 @@ void ScreenUI::begin() {
 }
 
 void ScreenUI::present() {
+  spiBusLock();   // serialize the display flush against the core-0 SD task (shared SPI bus)
 #if defined(BOARD_W550)
   // The UI renders into a 240x320 portrait sprite. Scale it x1.5 to 360x480 and
   // center it on the 800x480 landscape panel. Phase 2 (native landscape layout)
@@ -305,6 +308,7 @@ void ScreenUI::present() {
 #else
   frame.pushSprite(0, 0);
 #endif
+  spiBusUnlock();
 }
 
 void ScreenUI::showSplash() {

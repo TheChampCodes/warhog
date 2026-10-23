@@ -10,6 +10,78 @@
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
 #include "pig_proto.h"   // Scheduler Phase 3: PIG_MSG_ADMIN_EXT explicit channel list (worker parse)
+#include "SpiBusLock.h"  // Scheduler Phase 4: recursive mutex for the shared SD+TFT SPI bus
+
+// ================================================================
+//  Scheduler Phase 4 (Step 1) — move Core-mode per-record SD logging off the
+//  main loop onto a FreeRTOS task pinned to CORE 0 (the Arduino loop runs on
+//  core 1), so the RT path (ESP-NOW RX ring drain + reassignment in
+//  coreModeTick) keeps running on core 1 while the SD write proceeds in
+//  parallel on core 0. Unlike the single-core C5, the S3 is dual-core, so this
+//  is a real parallel offload. The SD card and TFT share one SPI bus here, so
+//  the task takes gSpiBusMutex (SpiBusLock.h) around the write and
+//  ScreenUI::present()/getTouch take the same mutex on core 1. Flag-gated
+//  PIG_FEAT_CORE_ISO (default OFF -> inline write, no task, no mutex,
+//  byte-identical). Lossy queue: drops newest on overflow rather than blocking.
+// ================================================================
+#ifndef PIG_FEAT_CORE_ISO
+#define PIG_FEAT_CORE_ISO 0
+#endif
+#if PIG_FEAT_CORE_ISO
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
+#include "freertos/task.h"
+#include "freertos/semphr.h"
+SemaphoreHandle_t gSpiBusMutex = nullptr;   // shared SD+TFT SPI bus (SpiBusLock.h)
+struct PigLogRec {
+  char   mac[20], ssid[34], auth[20], ts[28];
+  int16_t ch; int8_t rssi; double lat, lon, alt, acc;
+};
+static QueueHandle_t gLogQ      = nullptr;
+static TaskHandle_t  gStoreTask = nullptr;
+static volatile bool gStoreRun  = false;
+static volatile uint32_t gStoreDrops = 0;   // records dropped when the SD queue is full
+static void tStore(void*) {
+  PigLogRec r;
+  while (gStoreRun) {
+    if (xQueueReceive(gLogQ, &r, pdMS_TO_TICKS(20)) == pdTRUE) {
+      spiBusLock();   // SD + TFT share the SPI bus on this board
+      appendWigleRow(String(r.mac), String(r.ssid), String(r.auth), String(r.ts),
+                     r.ch, r.rssi, r.lat, r.lon, r.alt, r.acc);
+      spiBusUnlock();
+    }
+  }
+  vTaskDelete(nullptr);
+}
+static void coreStoreStart() {
+  if (gStoreTask) return;
+  if (!gSpiBusMutex) gSpiBusMutex = xSemaphoreCreateRecursiveMutex();  // before the task can write
+  if (!gLogQ) gLogQ = xQueueCreate(48, sizeof(PigLogRec));
+  gStoreRun = true;
+  xTaskCreatePinnedToCore(tStore, "tStore", 6144, nullptr, 2, &gStoreTask, 0);  // core 0, prio 2 (below WiFi)
+  Serial.println("[CORE-ISO] SD store task started (core 0)");
+}
+static void coreStoreStop() {
+  if (!gStoreTask) return;
+  gStoreRun = false;   // task self-deletes on its next wake; mutex kept for present()
+  gStoreTask = nullptr;
+}
+// Returns true if queued (false = dropped under backpressure).
+static bool coreStoreEnqueue(const String& mac, const String& ssid, const String& auth,
+                             const String& ts, int ch, int rssi,
+                             double lat, double lon, double alt, double acc) {
+  if (!gLogQ) return false;
+  PigLogRec r{};
+  snprintf(r.mac,  sizeof(r.mac),  "%s", mac.c_str());
+  snprintf(r.ssid, sizeof(r.ssid), "%s", ssid.c_str());
+  snprintf(r.auth, sizeof(r.auth), "%s", auth.c_str());
+  snprintf(r.ts,   sizeof(r.ts),   "%s", ts.c_str());
+  r.ch = (int16_t)ch; r.rssi = (int8_t)rssi; r.lat = lat; r.lon = lon; r.alt = alt; r.acc = acc;
+  bool ok = (xQueueSend(gLogQ, &r, 0) == pdTRUE);   // 0 timeout -> drop if full, never block
+  if (!ok) gStoreDrops++;
+  return ok;
+}
+#endif
 
 // ================================================================
 //  Scheduler Phase 3 — dynamic yield-weighted channel assignment (flag-gated).
@@ -906,7 +978,11 @@ static void coreParseAndLogText(const char* line) {
     altM = gps.altitude.meters();
     accM = gps.hdop.hdop();
   }
+#if PIG_FEAT_CORE_ISO
+  coreStoreEnqueue(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM);  // SD write -> core-0 task
+#else
   appendWigleRow(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM);
+#endif
   // Mirror each AP to whichever phone app this Core is paired with, so it plots
   // in real time on the map (personality chosen by the CORE BLE APP setting).
   if (coreBleIsIosEsp) iosEspCompatPushAp(bssid.c_str(), ssid.c_str(), ch, rssi, auth.c_str());
@@ -1183,6 +1259,9 @@ void enterCoreMode() {
 
   Serial.printf("[CORE] Ready — listening for nodes on ch 6 (BLE app: %s)\n",
                 coreBleIsIosEsp ? "Wardrive Go" : "Biscuit Manager");
+#if PIG_FEAT_CORE_ISO
+  coreStoreStart();   // Phase 4: Core-mode SD logging runs on core 0, parallel to the loop
+#endif
 }
 
 void exitCoreMode() {
@@ -1190,6 +1269,9 @@ void exitCoreMode() {
   // Tear down whichever BLE bridge this session brought up, before WiFi/ESP-NOW churn.
   if (coreBleIsIosEsp) iosEspCompatStopStandalone();
   else                 biscuitCompatStopStandalone();
+#if PIG_FEAT_CORE_ISO
+  coreStoreStop();     // stop the core-0 SD task before WiFi/ESP-NOW churn
+#endif
   if (meshCoreActive) esp_now_deinit();
   meshCoreActive = false;
   coreNodeCount  = 0;
@@ -1360,6 +1442,17 @@ void coreModeTick() {
     coreTextHead = (coreTextHead + 1) % CORE_TEXT_QUEUE;
     coreParseAndLogText(coreTextBuf[i].line);
   }
+
+#if PIG_FEAT_CORE_ISO
+  // Phase 4 Step 1 instrumentation: watch the core-0 SD queue depth + drops.
+  static uint32_t coreIsoLogMs = 0;
+  if (now - coreIsoLogMs >= 5000) {
+    coreIsoLogMs = now;
+    Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu\n",
+                  gLogQ ? (unsigned)uxQueueMessagesWaiting(gLogQ) : 0u,
+                  (unsigned long)gStoreDrops);
+  }
+#endif
 
   // 3. Periodic heartbeat + ADMIN refresh to all connected nodes.
   // Nodes that missed the ADMIN while scanning will recover within one cycle.
