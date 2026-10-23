@@ -35,6 +35,7 @@ struct PigLogRec {
 static QueueHandle_t gLogQ      = nullptr;
 static TaskHandle_t  gStoreTask = nullptr;
 static volatile bool gStoreRun  = false;
+static volatile uint32_t gStoreDrops = 0;   // records dropped when the SD queue is full
 static void tStore(void*) {
   PigLogRec r;
   while (gStoreRun) {
@@ -67,7 +68,9 @@ static bool coreStoreEnqueue(const String& mac, const String& ssid, const String
   snprintf(r.auth, sizeof(r.auth), "%s", auth.c_str());
   snprintf(r.ts,   sizeof(r.ts),   "%s", ts.c_str());
   r.ch = (int16_t)ch; r.rssi = (int8_t)rssi; r.lat = lat; r.lon = lon; r.alt = alt; r.acc = acc;
-  return xQueueSend(gLogQ, &r, 0) == pdTRUE;   // 0 timeout -> drop if full, never block
+  bool ok = (xQueueSend(gLogQ, &r, 0) == pdTRUE);   // 0 timeout -> drop if full, never block
+  if (!ok) gStoreDrops++;
+  return ok;
 }
 #endif
 
@@ -1287,6 +1290,12 @@ void coreModeTick() {
   uint32_t now = millis();
 #if PIG_FEAT_DYNAMIC_ASSIGN
   coreYieldUpdate(now);   // Phase 3: fold per-channel record counts into yield EWMA
+#endif
+#if PIG_FEAT_CORE_ISO
+  { static uint32_t isoLogMs = 0;
+    if (now - isoLogMs >= 5000) { isoLogMs = now;
+      Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu\n",
+        gLogQ ? (unsigned)uxQueueMessagesWaiting(gLogQ) : 0u, (unsigned long)gStoreDrops); } }
 #endif
 
   // 1. Process pending CORE_REQUEST queue (new node registrations)
