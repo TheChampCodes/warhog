@@ -339,6 +339,54 @@ static void test_dwell() {
   CHECK(pig_revisit_count(10) == 0, "flag OFF -> no revisit phase");
 }
 
+// ---------------------------------------------------------------- pig_sweep FSM (Phase 2)
+static void test_sweep() {
+  printf("[pig_sweep]\n");
+
+  // Pure revisit-count math (always compiled, flag-independent).
+  CHECK(pig_revisit_count_adaptive(0) == 0, "revisit cap: 0 productive -> 0");
+  CHECK(pig_revisit_count_adaptive(1) == 1, "revisit cap: 1 productive -> 1");
+  CHECK(pig_revisit_count_adaptive(4) == 2, "revisit cap: top ~half of 4 -> 2");
+  CHECK(pig_revisit_count_adaptive(20) == 8, "revisit cap: clamps to 8");
+
+  // Pure ranker: yield desc, stable tie-break by index asc.
+  uint16_t y[5] = {2, 5, 0, 5, 1};   // ch idx: 0=2 1=5 2=0 3=5 4=1
+  uint8_t  order[5];
+  uint8_t  withY = pig_sweep_rank(y, 5, order);
+  CHECK(withY == 4, "rank: 4 channels had yield>0");
+  CHECK(order[0] == 1 && order[1] == 3, "rank: equal top yields keep index order (1 before 3)");
+  CHECK(order[2] == 0 && order[3] == 4 && order[4] == 2, "rank: desc then zero last");
+
+  // Flag-OFF FSM (default host build): fast-only, all channels in order, legacy
+  // active fixed dwell, and NO revisit phase.
+  uint8_t chans[4] = {1, 6, 11, 36};
+  uint16_t yields[4] = {2, 5, 0, 0};
+  PigSweep sw;
+  pig_sweep_begin(&sw, chans, 4);
+  uint8_t ch; PigScanPlan pl;
+  bool fastOk = true;
+  for (int i = 0; i < 4; ++i) {
+    bool ok = pig_sweep_next(&sw, &ch, &pl);
+    if (!ok || ch != chans[i] || pl.passive || pl.dwell_ms != PIG_DWELL_LEGACY_MS) fastOk = false;
+    pig_sweep_report(&sw, yields[i]);
+  }
+  CHECK(fastOk, "sweep OFF: fast pass visits all channels in order at legacy active dwell");
+  CHECK(!pig_sweep_next(&sw, &ch, &pl), "sweep OFF: no revisit phase -> done after fast pass");
+
+  // next() is idempotent until report() advances.
+  PigSweep sw2;
+  pig_sweep_begin(&sw2, chans, 4);
+  uint8_t a, b; PigScanPlan pa, pb;
+  pig_sweep_next(&sw2, &a, &pa);
+  pig_sweep_next(&sw2, &b, &pb);
+  CHECK(a == b && a == chans[0], "sweep: next() idempotent before report()");
+
+  // Empty sweep terminates immediately.
+  PigSweep sw3;
+  pig_sweep_begin(&sw3, chans, 0);
+  CHECK(!pig_sweep_next(&sw3, &ch, &pl), "sweep: n==0 -> immediately done");
+}
+
 // ---------------------------------------------------------------- pig_queues (Phase 4 groundwork)
 static void test_queues() {
   printf("[pig_queues]\n");
@@ -380,6 +428,7 @@ int main() {
   test_metrics();
   test_replay();
   test_dwell();
+  test_sweep();
   test_queues();
   printf("-----------------------------------\n");
   printf("%d checks, %d failures\n", g_checks, g_fail);
