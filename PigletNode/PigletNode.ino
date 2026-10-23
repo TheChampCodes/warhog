@@ -115,9 +115,13 @@ static uint32_t lastAdminMs   = 0;  // tracks last ADMIN from Core for timeout
 
 // Per-channel scan state
 static bool     scanActive    = false;
-static uint8_t  scanChOffset  = 0;
 static bool     scanAdminWin  = false;
 static uint32_t scanAdminMs   = 0;
+// Phase 2 two-pass sweep (scheduler/pig_dwell.h) — it now owns the channel
+// cursor the scan tick used to keep by hand. Zero-initialized means "needs
+// rebuild", so the first scan tick builds the list from the current assignment
+// and every site that restarts the cycle just invalidates it.
+static PigSweep nodeSweep;
 
 // Pending core-found event (set from ESP-Now callback, consumed in loop)
 static volatile bool coreFoundPending  = false;
@@ -246,7 +250,7 @@ static void biscuitSetChannels(const jcmk_text_msg_t* msg) {
   }
   memcpy(biscuitChannels, channels, count);
   biscuitChannelCount = count;
-  scanChOffset = 0;
+  pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new list
 }
 
 static String authStr(wifi_auth_mode_t m) {
@@ -297,7 +301,7 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
       uint8_t cnt = ax->n; if (cnt > avail) cnt = avail; if (cnt > NUM_CHANNELS) cnt = NUM_CHANNELS;
       for (uint8_t i = 0; i < cnt; i++) biscuitChannels[i] = ax->channels[i];
       biscuitChannelCount = cnt;
-      scanChOffset = 0;
+      pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new list
     }
     lastAdminMs = millis();
 
@@ -311,6 +315,7 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
       assignVer = adm->assignment_version;
       startIdx  = adm->start_channel_idx;
       endIdx    = adm->end_channel_idx;
+      pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new range
     }
     lastAdminMs = millis();
 
@@ -336,8 +341,8 @@ static void resetToSearching() {
   reqInterval  = REQ_INIT_MS;
   lastAdminMs  = 0;
   scanActive   = false;
-  scanChOffset = 0;
   scanAdminWin = false;
+  pig_sweep_invalidate(&nodeSweep);
   memset(coreMac, 0, 6);
   coreFoundPending = false;
 
@@ -350,42 +355,50 @@ static void resetToSearching() {
 //  Per-channel async scan tick
 // ================================================================
 static void scanTick() {
-  uint8_t numCh = biscuitChannelCount ? biscuitChannelCount :
-                  ((endIdx >= startIdx) ? (endIdx - startIdx + 1) : 0);
-  if (numCh == 0) return;
-
   // Admin window: radio is on ch 6, waiting before next cycle
   if (scanAdminWin) {
     if (millis() - scanAdminMs >= ADMIN_WIN_MS) {
-      scanAdminWin = false;
-      scanChOffset = 0;  // begin next cycle
+      scanAdminWin = false;   // next tick rebuilds the sweep for a new cycle
     }
     return;
   }
 
   if (!scanActive) {
-    // Full cycle done — hop to ch 6, heartbeat, then wait admin window
-    if (scanChOffset >= numCh) {
+    // Phase 2: (re)build the two-pass sweep at the top of each cycle — the
+    // assignment can change between cycles (node join/leave, or a Phase-3
+    // explicit list). This board is a C5, so 5 GHz is always allowed.
+    if (!pig_sweep_valid(&nodeSweep)) {
+      uint8_t chans[PIG_SWEEP_MAXCH];
+      uint8_t n = pig_sweep_build(chans, biscuitChannels, biscuitChannelCount,
+                                  CHANNELS, NUM_CHANNELS,
+                                  startIdx, endIdx, /*allow_5ghz*/true);
+      if (n == 0) return;   // nothing scannable assigned yet — retry next tick
+      pig_sweep_begin(&nodeSweep, chans, n);
+    }
+
+    // Sweep done (fast pass + any passive revisits) — hop to ch 6, heartbeat,
+    // then wait out the admin window
+    uint8_t channel; PigScanPlan plan;
+    if (!pig_sweep_next(&nodeSweep, &channel, &plan)) {
       setChannel(ESPNOW_CH);
       sendHeartbeat();
       lastHbMs     = millis();
       scanAdminWin = true;
       // Random jitter (0-200 ms) staggers admin windows across nodes
       scanAdminMs  = millis() + (uint32_t)(esp_random() % 200);
+      pig_sweep_invalidate(&nodeSweep);
       return;
     }
 
-    uint8_t chIdx = startIdx + scanChOffset;
-    if (!biscuitChannelCount && chIdx >= NUM_CHANNELS) { scanChOffset++; return; }
-    uint8_t channel = biscuitChannelCount ? biscuitChannels[scanChOffset] : CHANNELS[chIdx];
-
-    PigScanPlan plan = pig_scan_plan(channel, PIG_PASS_FAST, 0);  // Phase 2: adaptive dwell + DFS passive (no-op unless flag)
+    // Phase 2: a short active fast pass over the whole assignment, then longer
+    // PASSIVE revisits of the channels that actually yielded; DFS 5 GHz is
+    // always passive. Flag off -> legacy fixed active scan, no revisit pass.
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
                                    plan.passive, plan.dwell_ms, channel);
     if (rc == WIFI_SCAN_RUNNING || rc == 0) {
       scanActive = true;
     } else {
-      scanChOffset++;  // channel failed — skip it
+      pig_sweep_report(&nodeSweep, 0);  // channel failed — no yield, move on
     }
     return;
   }
@@ -394,12 +407,18 @@ static void scanTick() {
   int n = WiFi.scanComplete();
   if (n == WIFI_SCAN_RUNNING) return;
 
+  // What this channel contributed, i.e. everything Phase-1 dedup did NOT
+  // suppress. That is the channel's yield: it ranks the passive revisit pass,
+  // and with dedup off it degrades to the raw AP count, which ranks as well.
+  uint16_t sweepYield = 0;
+
   if (n > 0) {
     netFound += (uint32_t)n;
     // Return to ch 6 before sending (Core only listens on ch 6)
     setChannel(ESPNOW_CH);
     for (int i = 0; i < n; i++) {
       if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
+      sweepYield++;                    // Phase 2 revisit ranking
       String ssid = WiFi.SSID(i);
       String auth = authStr(WiFi.encryptionType(i));
       if (plainBiscuit) {
@@ -422,7 +441,7 @@ static void scanTick() {
   }
   WiFi.scanDelete();
   scanActive = false;
-  scanChOffset++;
+  pig_sweep_report(&nodeSweep, sweepYield);
 }
 
 // ================================================================

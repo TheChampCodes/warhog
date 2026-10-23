@@ -144,11 +144,15 @@ static uint8_t  scanNumChans  = 0;
 
 // Per-channel scan state
 static bool     scanActive    = false;
-static uint8_t  scanChOffset  = 0;
 static bool     scanAdminWin  = false;
 static uint32_t scanAdminMs   = 0;
 static uint8_t  scanCurCh     = 0;  // channel currently being scanned (for display)
 static uint8_t  chCount[14]   = {0}; // networks in the latest scan of each 2.4 GHz channel
+// Phase 2 two-pass sweep (scheduler/pig_dwell.h) — it now owns the channel
+// cursor the scan tick used to keep by hand. Zero-initialized means "needs
+// rebuild", so the first scan tick builds the list from the current assignment
+// and every site that restarts the cycle just invalidates it.
+static PigSweep nodeSweep;
 
 // OLED page, flipped by a short BOOT press
 enum OledPage : uint8_t { PAGE_PIG = 0, PAGE_GRAPH, PAGE_STATS, PAGE_COUNT };
@@ -1484,7 +1488,7 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
         for (uint8_t j = 0; j < NUM_CHANNELS; j++)
           if (CHANNELS[j] == ax->channels[i]) { scanChans[cnt++] = j; break; }
       scanNumChans = cnt;
-      scanChOffset = 0;
+      pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new plan
     }
     lastAdminMs = millis();
 
@@ -1497,6 +1501,7 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
       startIdx  = adm->start_channel_idx;
       endIdx    = adm->end_channel_idx;
       scanNumChans = 0;  // binary admin is a contiguous range; drop any sparse plan
+      pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new range
     }
     lastAdminMs = millis();
 
@@ -1535,6 +1540,7 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
         startIdx = first;           // kept for effRange fallback + display
         endIdx   = last;
         assignVer = (assignVer == 255) ? 1 : assignVer + 1;  // mark as assigned
+        pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new plan
       }
     }
     // Ack the config to a plain-reply Biscuit Core (type=11). Only when
@@ -1585,8 +1591,8 @@ static void resetToSearching() {
   reqInterval  = REQ_INIT_MS;
   lastAdminMs  = 0;
   scanActive   = false;
-  scanChOffset = 0;
   scanAdminWin = false;
+  pig_sweep_invalidate(&nodeSweep);
   if (bleBusy()) bleScan->stop();
   bleQHead = bleQTail;  // drop unsent BLE hits (no Core to send them to)
   memset(coreMac, 0, 6);
@@ -1613,27 +1619,43 @@ static void bleDrain() {
 //  Per-channel async scan tick (2.4 GHz only)
 // ================================================================
 static void scanTick() {
-  uint8_t s, e;
-  effRange(s, e);
-  // Prefer the Core's explicit sparse plan (e.g. 1/6/11) when it sent one;
-  // otherwise walk the contiguous effRange.
-  uint8_t numCh = (scanNumChans > 0) ? scanNumChans : (uint8_t)(e - s + 1);
-
   // Admin window: radio is on ch 6. A BLE scan runs alongside it; the window
   // stays open until the BLE scan has finished and its results are sent.
   if (scanAdminWin) {
     bleDrain();
     if ((int32_t)(millis() - scanAdminMs) >= (int32_t)ADMIN_WIN_MS && !bleBusy()) {
       bleDrain();
-      scanAdminWin = false;
-      scanChOffset = 0;  // begin next cycle
+      scanAdminWin = false;   // next tick rebuilds the sweep for a new cycle
     }
     return;
   }
 
   if (!scanActive) {
-    // Full cycle done — hop to ch 6, heartbeat, then wait admin window
-    if (scanChOffset >= numCh) {
+    // Phase 2: (re)build the two-pass sweep at the top of each cycle — the
+    // assignment can change between cycles (node join/leave, or a Phase-3
+    // explicit list). The Core's explicit sparse plan (e.g. 1/6/11) wins when
+    // it sent one; otherwise walk the contiguous effRange. CHANNELS[] is the
+    // shared dual-band table but this is a C3, so 5 GHz entries are dropped —
+    // a sparse plan naming them would otherwise burn ticks on scans the radio
+    // cannot do.
+    if (!pig_sweep_valid(&nodeSweep)) {
+      uint8_t s, e;
+      effRange(s, e);
+      uint8_t expl[NUM_CHANNELS];
+      for (uint8_t i = 0; i < scanNumChans && i < NUM_CHANNELS; i++)
+        expl[i] = CHANNELS[scanChans[i]];   // the plan holds indices; the sweep wants channels
+      uint8_t chans[PIG_SWEEP_MAXCH];
+      uint8_t cnt = pig_sweep_build(chans, expl, scanNumChans,
+                                    CHANNELS, NUM_CHANNELS,
+                                    s, e, /*allow_5ghz*/false);
+      if (cnt == 0) return;   // nothing scannable assigned yet — retry next tick
+      pig_sweep_begin(&nodeSweep, chans, cnt);
+    }
+
+    // Sweep done (fast pass + any passive revisits) — hop to ch 6, heartbeat,
+    // then wait out the admin window
+    uint8_t channel; PigScanPlan plan;
+    if (!pig_sweep_next(&nodeSweep, &channel, &plan)) {
       setChannel(ESPNOW_CH);
       sendHeartbeat();
       lastHbMs     = millis();
@@ -1641,19 +1663,20 @@ static void scanTick() {
       // Random jitter (0-200 ms) staggers admin windows across nodes
       scanAdminMs  = millis() + (uint32_t)(esp_random() % 200);
       if (bleScan) bleScan->start(BLE_SCAN_MS, false, true);  // non-blocking
+      pig_sweep_invalidate(&nodeSweep);
       return;
     }
 
-    uint8_t idx = (scanNumChans > 0) ? scanChans[scanChOffset] : (uint8_t)(s + scanChOffset);
-    uint8_t channel = CHANNELS[idx];
-    PigScanPlan plan = pig_scan_plan(channel, PIG_PASS_FAST, 0);  // Phase 2: adaptive dwell + DFS passive (no-op unless flag)
+    // Phase 2: a short active fast pass over the whole assignment, then longer
+    // PASSIVE revisits of the channels that actually yielded. Flag off ->
+    // legacy fixed active scan and no revisit pass, so behavior is unchanged.
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
                                    plan.passive, plan.dwell_ms, channel);
     if (rc == WIFI_SCAN_RUNNING || rc == 0) {
       scanActive = true;
       scanCurCh  = channel;
     } else {
-      scanChOffset++;  // channel failed — skip it
+      pig_sweep_report(&nodeSweep, 0);  // channel failed — no yield, move on
     }
     return;
   }
@@ -1665,12 +1688,18 @@ static void scanTick() {
   if (n >= 0 && scanCurCh >= 1 && scanCurCh <= 14)
     chCount[scanCurCh - 1] = (n > 255) ? 255 : (uint8_t)n;
 
+  // What this channel contributed, i.e. everything Phase-1 dedup did NOT
+  // suppress. That is the channel's yield: it ranks the passive revisit pass,
+  // and with dedup off it degrades to the raw AP count, which ranks as well.
+  uint16_t sweepYield = 0;
+
   if (n > 0) {
     netFound += (uint32_t)n;
     // Return to ch 6 before sending (Core only listens on ch 6)
     setChannel(ESPNOW_CH);
     for (int i = 0; i < n; i++) {
       if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
+      sweepYield++;                    // Phase 2 revisit ranking
       wifi_auth_mode_t am = WiFi.encryptionType(i);
       if (markSeen(WiFi.BSSID(i))) {
         netNew++; hopPending = true; lastNewMs = millis();
@@ -1703,7 +1732,7 @@ static void scanTick() {
   }
   WiFi.scanDelete();
   scanActive = false;
-  scanChOffset++;
+  pig_sweep_report(&nodeSweep, sweepYield);
 }
 
 // ================================================================

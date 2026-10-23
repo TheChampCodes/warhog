@@ -48,6 +48,36 @@ typedef struct __attribute__((packed)) {
 
 static_assert(sizeof(pig_batch_t) == 212, "pig_batch_t must be 212B for Biscuit compat");
 
+// Extended admin (PIG_MSG_ADMIN_EXT): hands a node an EXPLICIT channel list (not a
+// contiguous start/end range), which is what unlocks yield-packed, NON-contiguous
+// assignment (DESIGN §4). Also carries the Phase-2 dwell knobs + scan policy and the
+// transmit-slot scheduling fields. Piglet<->Piglet only (legacy Cores never send 0x23,
+// legacy nodes ignore it). Send offsetof(pig_admin_ext_t, channels)+n bytes on the wire.
+#define PIG_ADMIN_EXT_MAXCH 40
+enum PigScanPolicyBits : uint8_t {
+  PIG_SP_ACTIVE_ALLOWED = 0x01,  // active probing permitted on non-DFS channels
+  PIG_SP_PASSIVE_5G     = 0x02,  // 5 GHz passive-only (DFS compliance)
+  PIG_SP_SUMMARY_ONLY   = 0x04   // backpressure: send summaries only
+};
+typedef struct __attribute__((packed)) {
+  char     magic[4];        // mesh magic — sender fills (this fork: "ENOW")
+  uint8_t  type;            // PIG_MSG_ADMIN_EXT (0x23)
+  uint8_t  assign_ver;      // assignment version (node resyncs on change)
+  uint8_t  slot_index;      // this node's deterministic transmit slot
+  uint8_t  slot_count;      // total Piglet nodes in the slot schedule
+  uint8_t  fast_dwell;      // ms, Phase-2 fast active pass (0 = node default)
+  uint8_t  base_revisit;    // ms, Phase-2 passive revisit floor (0 = node default)
+  uint8_t  scan_policy;     // PigScanPolicyBits
+  uint8_t  n;               // number of valid entries in channels[]
+  uint8_t  channels[PIG_ADMIN_EXT_MAXCH];  // explicit channel list (first n valid)
+} pig_admin_ext_t;          // 12 B header + 40 B list = 52 B max on the wire
+static_assert(sizeof(pig_admin_ext_t) == 52, "pig_admin_ext_t must be 52B");
+
+// Wire length to send for an admin-ext carrying `n` channels (header + n).
+static inline size_t pig_admin_ext_len(uint8_t n) {
+  return (size_t)(sizeof(pig_admin_ext_t) - PIG_ADMIN_EXT_MAXCH) + (size_t)n;
+}
+
 // CRC16-CCITT (0x1021, init 0xFFFF, MSB-first, no reflect, no xorout).
 // Check value: crc16_ccitt("123456789", 9) == 0x29B1.
 static inline uint16_t crc16_ccitt(const uint8_t* d, size_t n) {

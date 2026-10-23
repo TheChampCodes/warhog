@@ -1,9 +1,13 @@
-# Session handoff — yield-driven scheduler work
+# Session handoff — yield-driven scheduler work (ARCHIVED)
 
-**Read this first.** It captures a prior Claude (cloud) chat so a fresh Claude Code
-session in VS Code can continue with full context. The companion file
-[`DESIGN.md`](./DESIGN.md) holds the complete technical design; the code in this
-folder is the Phase-0 groundwork already written and tested.
+> **Archived — historical only.** This captured the design chat that started the
+> work, back when nothing was wired into firmware. Phases 0–3 and Phase 4 Step 1
+> have since shipped to `main` and are ON by default. For the current state read
+> [`CLAUDE.md`](./CLAUDE.md); for the design read [`DESIGN.md`](./DESIGN.md).
+> Everything below describes the starting point, not where things stand.
+
+The companion file [`DESIGN.md`](./DESIGN.md) holds the complete technical design;
+the code in this folder was the Phase-0 groundwork already written and tested.
 
 ## Where things stand
 

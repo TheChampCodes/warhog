@@ -2411,9 +2411,13 @@ static uint32_t jcmkReqInterval = JCMK_REQ_INIT_MS;
 
 // Per-channel async scan state
 static bool     nodeScanActive   = false;
-static uint8_t  nodeScanChOffset = 0;
 static bool     nodeScanAdminWin = false;
 static uint32_t nodeScanAdminMs  = 0;
+// Phase 2 two-pass sweep (pig_dwell.h) — it now owns the channel cursor the
+// scan tick used to keep by hand. Zero-initialized means "needs rebuild", so
+// the first scan tick builds the list from the current assignment and every
+// site that restarts the cycle just invalidates it.
+static PigSweep nodeSweep;
 
 // Pending core-found event — set from ESP-Now callback, consumed in loop
 static volatile bool  jcmkCoreFoundPending    = false;
@@ -2667,7 +2671,7 @@ static void biscuitSetChannels(const void* data, int len) {
   }
   memcpy(biscuitChannels, channels, count);
   biscuitChannelCount = count;
-  nodeScanChOffset = 0;
+  pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new list
 }
 
 // ---- Core forward decls (used inside jcmkOnRecv callback) ----
@@ -2835,7 +2839,7 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         uint8_t cnt = ax->n; if (cnt > avail) cnt = avail; if (cnt > JCMK_NUM_CHANNELS) cnt = JCMK_NUM_CHANNELS;
         for (uint8_t i = 0; i < cnt; i++) biscuitChannels[i] = ax->channels[i];
         biscuitChannelCount = cnt;
-        nodeScanChOffset = 0;
+        pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new list
       }
       if (jcmkCoreIsPiglet) { jcmkSlotIndex = ax->slot_index; jcmkSlotCount = (ax->slot_count > 0) ? ax->slot_count : 1; }
     } else if (type == JCMK_MSG_ADMIN && len >= (int)sizeof(jcmk_admin_msg_t)) {
@@ -2846,6 +2850,7 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         jcmkAssignVer = adm->assignment_version;
         jcmkStartIdx  = adm->start_channel_idx;
         jcmkEndIdx    = adm->end_channel_idx;
+        pig_sweep_invalidate(&nodeSweep);   // restart the scan cycle on the new range
       }
       // Transmit-slot fields are only meaningful when paired with a confirmed
       // Piglet Core; refreshed every ADMIN regardless of assignment_version.
@@ -3062,43 +3067,50 @@ static void coreModeTick() {
 //  window (heartbeat + NODE_ADMIN_WIN_MS) before the next cycle.
 // ================================================================
 static void nodeDoScanTick() {
-  uint8_t numCh = biscuitChannelCount ? biscuitChannelCount :
-                  ((jcmkEndIdx >= jcmkStartIdx) ? (jcmkEndIdx - jcmkStartIdx + 1) : 0);
-  if (numCh == 0) return;
-
   // Admin window: radio is on ch 6, heartbeat already sent, just waiting
   if (nodeScanAdminWin) {
     if (millis() - nodeScanAdminMs >= NODE_ADMIN_WIN_MS) {
-      nodeScanAdminWin = false;
-      nodeScanChOffset = 0;  // begin next cycle
+      nodeScanAdminWin = false;   // next tick rebuilds the sweep for a new cycle
     }
     return;
   }
 
   if (!nodeScanActive) {
-    // Full cycle complete — enter admin window
-    if (nodeScanChOffset >= numCh) {
+    // Phase 2: (re)build the two-pass sweep at the top of each cycle — the
+    // assignment can change between cycles (node join/leave, or a Phase-3
+    // explicit list). This is a C5, so 5 GHz is always allowed.
+    if (!pig_sweep_valid(&nodeSweep)) {
+      uint8_t chans[PIG_SWEEP_MAXCH];
+      uint8_t n = pig_sweep_build(chans, biscuitChannels, biscuitChannelCount,
+                                  JCMK_CHANNELS, JCMK_NUM_CHANNELS,
+                                  jcmkStartIdx, jcmkEndIdx, /*allow_5ghz*/true);
+      if (n == 0) return;   // nothing scannable assigned yet — retry next tick
+      pig_sweep_begin(&nodeSweep, chans, n);
+    }
+
+    // Sweep complete (fast pass + any passive revisits) — enter admin window
+    uint8_t channel; PigScanPlan plan;
+    if (!pig_sweep_next(&nodeSweep, &channel, &plan)) {
       jcmkSetChannel(JCMK_ESPNOW_CH);
       if (jcmkHaveCore) { jcmkSendHeartbeat(); jcmkLastHbMs = millis(); }
       nodeScanAdminWin = true;
       // Random jitter (0-200 ms) staggers admin windows across nodes
       nodeScanAdminMs  = millis() + (uint32_t)(esp_random() % 200);
+      pig_sweep_invalidate(&nodeSweep);
       return;
     }
 
-    uint8_t chIdx = jcmkStartIdx + nodeScanChOffset;
-    if (!biscuitChannelCount && chIdx >= JCMK_NUM_CHANNELS) { nodeScanChOffset++; return; }
-    uint8_t channel = biscuitChannelCount ? biscuitChannels[nodeScanChOffset] : JCMK_CHANNELS[chIdx];
-
-    // Async scan of this single channel only (no blocking).
-    // Phase 2: adaptive dwell + DFS passive when enabled (no-op unless flag).
-    PigScanPlan plan = pig_scan_plan(channel, PIG_PASS_FAST, 0);
+    // Async scan of this single channel only (no blocking), with the plan the
+    // sweep picked: a short active fast pass over the whole assignment, then
+    // longer PASSIVE revisits of the channels that actually yielded. DFS 5 GHz
+    // is always passive. Flag off (the default here) -> legacy fixed active
+    // scan and no revisit pass, so behavior is unchanged.
     int16_t rc = WiFi.scanNetworks(/*async*/true, /*hidden*/true,
                                     plan.passive, plan.dwell_ms, channel);
     if (rc == WIFI_SCAN_RUNNING || rc == 0) {
       nodeScanActive = true;
     } else {
-      nodeScanChOffset++;  // skip failed channel
+      pig_sweep_report(&nodeSweep, 0);  // channel failed — no yield, move on
     }
     return;
   }
@@ -3106,6 +3118,11 @@ static void nodeDoScanTick() {
   // Scan in progress — poll for completion
   int n = WiFi.scanComplete();
   if (n == WIFI_SCAN_RUNNING) return;
+
+  // What this channel contributed, i.e. everything Phase-1 dedup did NOT
+  // suppress. That is the channel's yield: it ranks the passive revisit pass,
+  // and with dedup off it degrades to the raw AP count, which ranks as well.
+  uint16_t sweepYield = 0;
 
   if (n > 0) {
     jcmkNetworksFound += (uint32_t)n;
@@ -3116,6 +3133,7 @@ static void nodeDoScanTick() {
       jcmkSetChannel(JCMK_ESPNOW_CH);
       for (int i = 0; i < n; i++) {
         if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
+        sweepYield++;                    // Phase 2 revisit ranking
         String bssid = WiFi.BSSIDstr(i);
         String ssid  = WiFi.SSID(i);
         String auth  = authModeToString(WiFi.encryptionType(i));
@@ -3149,6 +3167,7 @@ static void nodeDoScanTick() {
       // this node's own deterministic transmit slot.
       for (int i = 0; i < n; i++) {
         if (pigDedupSkip(i)) continue;   // Phase 1 dedup: skip redundant repeat (no-op unless flag)
+        sweepYield++;                    // Phase 2 revisit ranking
         String bssid = WiFi.BSSIDstr(i);
         String ssid  = WiFi.SSID(i);
         String auth  = authModeToString(WiFi.encryptionType(i));
@@ -3162,7 +3181,7 @@ static void nodeDoScanTick() {
   }
   WiFi.scanDelete();
   nodeScanActive = false;
-  nodeScanChOffset++;
+  pig_sweep_report(&nodeSweep, sweepYield);
 }
 
 // ================================================================
@@ -3221,8 +3240,8 @@ static void enterNodeMode() {
   jcmkEndIdx            = JCMK_NUM_CHANNELS - 1;
   jcmkAssignVer         = 0;
   nodeScanActive        = false;
-  nodeScanChOffset      = 0;
   nodeScanAdminWin      = false;
+  pig_sweep_invalidate(&nodeSweep);
   biscuitChannelCount   = 0;
 
   // Mesh mode owns the WiFi stack — prevent stopAPIfAllowed() from firing
@@ -3326,6 +3345,7 @@ static void nodeModeTick() {
     jcmkAssignVer    = 0;
     jcmkStartIdx     = 0;
     jcmkEndIdx       = JCMK_NUM_CHANNELS - 1;
+    pig_sweep_invalidate(&nodeSweep);   // the assignment is gone — rebuild the sweep
     jcmkSlotIndex    = 0;
     jcmkSlotCount    = 1;
     jcmkPendingHead  = jcmkPendingTail = 0;  // drop any buffered-but-unsent results

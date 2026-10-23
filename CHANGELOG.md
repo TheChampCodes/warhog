@@ -11,7 +11,7 @@ the base firmware history.
 A staged rework of mesh acquisition toward yield-driven scheduling. The feature flags are now
 **enabled by default in the released flasher builds** (set per board in `platformio.ini`
 `build_flags`); each still compiles to the legacy behavior when its `-DPIG_FEAT_*=0`, so any
-one phase can be disabled in isolation. Host-tested (123 checks: `./scheduler/tests/run.sh`);
+one phase can be disabled in isolation. Host-tested (156 checks: `./scheduler/tests/run.sh`);
 full design in `scheduler/DESIGN.md`, Phase-4 plan in `scheduler/PHASE4_PLAN.md`.
 
 - **Phase 0 — instrumentation** (`PIG_FEAT_METRICS`): a 1 Hz `PIGM,…` metrics line (DESIGN §13)
@@ -19,10 +19,15 @@ full design in `scheduler/DESIGN.md`, Phase-4 plan in `scheduler/PHASE4_PLAN.md`
 - **Phase 1 — worker BSSID dedup** (`PIG_FEAT_DEDUP`, all node firmwares): suppresses redundant
   repeat sightings before a node transmits (`scheduler/pig_dedup.h`). **~29% mesh airtime saved**
   (stationary) measured on hardware; surfaces as `supp_pct` on the Core's PIGM line.
-- **Phase 2 — adaptive dwell + DFS-passive** (`PIG_FEAT_ADAPTIVE_DWELL`, all node firmwares):
-  faster active dwell + DFS 5 GHz (ch 52–144) forced passive for compliance
-  (`scheduler/pig_dwell.h`). The two-pass yield-weighted **revisit FSM** (`PigSweep`) is now a
-  pure, host-tested module; wiring it into the live scan loops stays a follow-up.
+- **Phase 2 — two-pass adaptive sweep + DFS-passive** (`PIG_FEAT_ADAPTIVE_DWELL`, all node
+  firmwares): every node's channel sweep is now driven by the `PigSweep` FSM
+  (`scheduler/pig_dwell.h`). A **50 ms active fast pass** covers the whole assignment and scores
+  each channel by what it yielded, then a **passive revisit pass** (110–300 ms, scaled by that
+  yield) dwells deeper on the top ~half of the productive channels, up to 8 — depth where the APs
+  actually are, without extra probe traffic. DFS 5 GHz (ch 52–144) is forced passive on both
+  passes for compliance, and channels the radio cannot scan (5 GHz on 2.4-only silicon) are
+  dropped when the sweep is built instead of burning a scan slot. With the flag off the sweep is
+  fast-only at the legacy fixed active dwell, i.e. exactly the old behavior.
 - **Phase 3 — dynamic yield assignment** (`PIG_FEAT_DYNAMIC_ASSIGN`, Core: piglet_fork + CYD):
   tracks per-channel yield and hands each node an explicit yield-ordered channel list
   (`PIG_MSG_ADMIN_EXT`); stays band-aware so 2.4 GHz-only nodes keep 1/6/11.

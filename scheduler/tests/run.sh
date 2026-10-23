@@ -14,6 +14,14 @@ OUT="$(mktemp -d)/test_all"
 
 "$OUT"
 
+# The suite above compiles with every PIG_FEAT_* at its OFF default, so the
+# flag-gated ON paths need their own TU. Phase 2 (adaptive dwell + the two-pass
+# sweep) ships ON in the firmwares, so build and run its ON-path tests too.
+ON="$(mktemp -d)/test_dwell_on"
+"$CXX" -std=c++17 -Wall -Wextra -Wno-unused-parameter     -I stubs     test_dwell_on.cpp -o "$ON"
+
+"$ON"
+
 # Also build the Phase-0 A/B replay runner and smoke-test it on a tiny inline
 # corpus (one AP sighted twice -> 1 unique, 1 suppressed).
 REPLAY="$(mktemp -d)/replay"

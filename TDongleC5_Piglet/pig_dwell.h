@@ -191,8 +191,61 @@ static inline bool pig_sweep_next(PigSweep* s, uint8_t* out_ch, PigScanPlan* out
 }
 
 // Report how many NEW BSSIDs the channel just returned by pig_sweep_next()
-// yielded, then advance to the next step.
+// yielded, then advance to the next step. A no-op on an invalidated sweep, so a
+// scan that was still in flight when the assignment changed cannot advance (or
+// corrupt) the sweep that replaced it.
 static inline void pig_sweep_report(PigSweep* s, uint16_t new_bssids) {
+  if (s->n == 0) return;
   if (s->pass == PIG_PASS_FAST && s->cursor < s->n) s->yield[s->cursor] = new_bssids;
   s->cursor++;
+}
+
+// ---------------------------------------------------------------------------
+//  Firmware-side cycle driver. A worker's scan tick owns one PigSweep and
+//  rebuilds it at the top of every cycle, because the assigned channel list can
+//  change between cycles (the Core re-assigns on node join/leave, and Phase 3
+//  sends explicit yield-packed lists). An invalid sweep (n == 0) is the "needs
+//  rebuild" state, which is also the zero-initialized state, so a static
+//  PigSweep is born needing a build and every existing "restart the cycle" site
+//  in the firmwares just calls pig_sweep_invalidate().
+// ---------------------------------------------------------------------------
+static inline bool pig_sweep_valid(const PigSweep* s) { return s->n != 0; }
+static inline void pig_sweep_invalidate(PigSweep* s) { s->n = 0; }
+
+// True when the sweep has no steps left (both passes exhausted). Equivalent to
+// pig_sweep_next() returning false, without needing the out-params.
+static inline bool pig_sweep_done(const PigSweep* s) {
+  if (!pig_sweep_valid(s)) return true;
+  if (s->pass == PIG_PASS_FAST) return false;      // fast pass still has steps or will transition
+  return s->cursor >= s->revisit_n;
+}
+
+// Build the channel list for one sweep from whichever assignment the worker
+// holds: an explicit list (Phase 3 PIG_MSG_ADMIN_EXT, or a Biscuit sparse plan)
+// when explicit_n > 0, else the contiguous table slice [start_idx, end_idx].
+// Channels the radio cannot scan are dropped here rather than burning a tick
+// mid-sweep: ch 0 (empty table slot) always, and 5 GHz (> 14) unless the board
+// has dual-band silicon. Returns the count written to out[] (<= PIG_SWEEP_MAXCH).
+static inline uint8_t pig_sweep_build(uint8_t* out,
+                                      const uint8_t* explicit_chans, uint8_t explicit_n,
+                                      const uint8_t* table, uint8_t table_n,
+                                      uint8_t start_idx, uint8_t end_idx,
+                                      bool allow_5ghz) {
+  uint8_t k = 0;
+  if (explicit_n) {
+    for (uint8_t i = 0; i < explicit_n && k < PIG_SWEEP_MAXCH; ++i) {
+      uint8_t ch = explicit_chans[i];
+      if (ch == 0) continue;
+      if (ch > 14 && !allow_5ghz) continue;
+      out[k++] = ch;
+    }
+  } else if (end_idx >= start_idx) {
+    for (uint8_t idx = start_idx; idx <= end_idx && idx < table_n && k < PIG_SWEEP_MAXCH; ++idx) {
+      uint8_t ch = table[idx];
+      if (ch == 0) continue;
+      if (ch > 14 && !allow_5ghz) continue;
+      out[k++] = ch;
+    }
+  }
+  return k;
 }
