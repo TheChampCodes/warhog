@@ -731,6 +731,50 @@ static void coreApplyNodeChannels(CoreNodeInfo& nd, const uint8_t* list, uint8_t
 static void coreAssignGroup(const uint8_t* idx, uint8_t n) {
   if (n == 0) return;
 
+#if PIG_FEAT_PAIR_SCHED
+  // Phase 5: antenna-pair complementary assignment. Each group IS one antenna; its
+  // members take alternating roles (A/B, by order within the group) and get the
+  // disjoint role channel lists from pig_dwell.h, phase-offset per group so the six
+  // pairs don't scan in lockstep. 2.4-only nodes take their role's 2.4 subset. DFS is
+  // handed out as a small rotating complementary pair (passive) to approximate the
+  // ~3-4 s DFS revisit without flooding every sweep. Per-channel dwell is applied
+  // node-side (pig_pair_plan); the Core only owns the channel-list split here.
+  {
+    static uint8_t pairDfsRot = 0;
+    const uint8_t g = coreNodes[idx[0]].group;
+
+    uint8_t dfs[PIG_MAX_CH]; uint8_t ndfs = 0;
+    for (uint8_t j = 0; j < JCMK_NUM_CHANNELS; j++)
+      if (JCMK_CHANNELS[j] >= 52 && JCMK_CHANNELS[j] <= 144) dfs[ndfs++] = JCMK_CHANNELS[j];
+
+    for (uint8_t t = 0; t < n; t++) {
+      CoreNodeInfo& nd = coreNodes[idx[t]];
+      const uint8_t role    = (uint8_t)(t & 1);                 // 0 = A, 1 = B
+      const uint8_t* rlist  = role ? PIG_PAIR_LIST_B : PIG_PAIR_LIST_A;
+      const uint8_t  rn     = role ? PIG_PAIR_LIST_B_N : PIG_PAIR_LIST_A_N;
+      const uint8_t  off    = (uint8_t)((g >= 1 ? g - 1 : 0) % rn);  // per-group phase offset
+
+      uint8_t list[PIG_ADMIN_EXT_MAXCH]; uint8_t nl = 0;
+      for (uint8_t j = 0; j < rn && nl < (uint8_t)sizeof(list); j++) {
+        const uint8_t ch = rlist[(off + j) % rn];
+        if (nd.band24Only && ch > 14) continue;                 // 2.4-only node: skip 5 GHz
+        list[nl++] = ch;
+      }
+      if (!nd.band24Only && ndfs > 0 && nl < (uint8_t)sizeof(list)) {
+        const uint8_t base = (uint8_t)((pairDfsRot * 2 + role) % ndfs);  // rotating, complementary
+        list[nl++] = dfs[base];
+        if (ndfs > 1 && nl < (uint8_t)sizeof(list)) list[nl++] = dfs[(base + 2) % ndfs];
+      }
+      if (nl == 0) { list[nl++] = 1; list[nl++] = 6; list[nl++] = 11; }   // safety
+      nd.startIdx = 0; nd.endIdx = (uint8_t)(nl ? nl - 1 : 0);            // display only
+      coreApplyNodeChannels(nd, list, nl);
+      delay(10);
+    }
+    pairDfsRot++;
+    return;
+  }
+#endif
+
   uint8_t dual[CORE_MAX_NODES], only24[CORE_MAX_NODES];
   uint8_t nDual = 0, n24 = 0;
   for (uint8_t t = 0; t < n; t++) {

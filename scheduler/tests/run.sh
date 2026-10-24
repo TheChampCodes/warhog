@@ -22,6 +22,12 @@ ON="$(mktemp -d)/test_dwell_on"
 
 "$ON"
 
+# Phase 5 (WarHog pair scheduler) also ships flag-gated; test its ON path.
+PAIR="$(mktemp -d)/test_pair_on"
+"$CXX" -std=c++17 -Wall -Wextra -Wno-unused-parameter     -I stubs     test_pair_on.cpp -o "$PAIR"
+
+"$PAIR"
+
 # Also build the Phase-0 A/B replay runner and smoke-test it on a tiny inline
 # corpus (one AP sighted twice -> 1 unique, 1 suppressed).
 REPLAY="$(mktemp -d)/replay"

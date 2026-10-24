@@ -18,6 +18,30 @@
 #define PIG_FEAT_ADAPTIVE_DWELL 0
 #endif
 
+// Phase 5 — WarHog dual-node pair scheduler (friend's handoff). When ON, the worker
+// uses an explicit PER-CHANNEL dwell table (below) in a single active-cadence pass
+// instead of the Phase-2 fast/yield-revisit two-pass. Pairs it with the Core's
+// complementary A/B antenna-pair assignment so two nodes on one antenna cover
+// different channels. Default OFF -> no change; test_all.cpp asserts the OFF path,
+// the ON path is covered by tests/test_pair_on.cpp.
+#ifndef PIG_FEAT_PAIR_SCHED
+#define PIG_FEAT_PAIR_SCHED 0
+#endif
+
+// Per-channel dwell table (friend's WarHog timing handoff).
+#ifndef PIG_PAIR_DWELL_HI24_MS
+#define PIG_PAIR_DWELL_HI24_MS 70u    // high-value 2.4 GHz: ch 1/6/11
+#endif
+#ifndef PIG_PAIR_DWELL_HI5_MS
+#define PIG_PAIR_DWELL_HI5_MS  60u    // high-value non-DFS 5 GHz: 36/40/44/48/149/153/157/161
+#endif
+#ifndef PIG_PAIR_DWELL_LOW_MS
+#define PIG_PAIR_DWELL_LOW_MS  30u    // low-value active: 2-5,7-10 and 165
+#endif
+#ifndef PIG_PAIR_DWELL_PASV_MS
+#define PIG_PAIR_DWELL_PASV_MS 120u   // passive: DFS 52-144 and 12-14
+#endif
+
 // Legacy fixed dwell — matches NODE_SCAN_DWELL_MS in the firmwares today.
 #ifndef PIG_DWELL_LEGACY_MS
 #define PIG_DWELL_LEGACY_MS 80u
@@ -64,9 +88,37 @@ static inline PigScanPlan pig_scan_plan_adaptive(uint8_t ch, uint8_t pass, uint1
   return p;
 }
 
+// --- Phase 5 pair scheduler: per-channel dwell table (always compiled, host-testable) ---
+static inline bool pig_pair_is_hi24(uint8_t ch) { return ch == 1 || ch == 6 || ch == 11; }
+static inline bool pig_pair_is_hi5(uint8_t ch) {
+  return ch==36 || ch==40 || ch==44 || ch==48 || ch==149 || ch==153 || ch==157 || ch==161;
+}
+// Map a channel to its WarHog dwell + scan mode. DFS and 12-14 are passive; high-value
+// 2.4/5 get long active dwell; everything else (low 2.4, 165) gets a short active dwell.
+static inline PigScanPlan pig_pair_plan(uint8_t ch) {
+  PigScanPlan p;
+  if (pig_is_dfs(ch) || ch == 12 || ch == 13 || ch == 14) { p.passive = true;  p.dwell_ms = PIG_PAIR_DWELL_PASV_MS; }
+  else if (pig_pair_is_hi24(ch))                          { p.passive = false; p.dwell_ms = PIG_PAIR_DWELL_HI24_MS; }
+  else if (pig_pair_is_hi5(ch))                           { p.passive = false; p.dwell_ms = PIG_PAIR_DWELL_HI5_MS; }
+  else                                                    { p.passive = false; p.dwell_ms = PIG_PAIR_DWELL_LOW_MS; }
+  return p;
+}
+
+// Canonical complementary antenna-pair channel lists (friend's starting allocation).
+// Node A and Node B on one antenna scan disjoint non-DFS sets; the Core hands these out
+// per group (see coreAssignGroup). 2.4-only nodes take the role's 2.4 subset. Exposed as
+// one source of truth so Core, nodes, and tests agree. DFS is assigned separately.
+static const uint8_t PIG_PAIR_LIST_A[] = { 6, 157, 44, 36, 153, 8, 2, 4, 10, 165 };
+static const uint8_t PIG_PAIR_LIST_B[] = { 1, 11, 161, 48, 149, 40, 9, 3, 5, 7 };
+static const uint8_t PIG_PAIR_LIST_A_N = (uint8_t)(sizeof(PIG_PAIR_LIST_A));
+static const uint8_t PIG_PAIR_LIST_B_N = (uint8_t)(sizeof(PIG_PAIR_LIST_B));
+
 // Flag-gated chooser the firmwares call. OFF -> legacy fixed active scan.
 static inline PigScanPlan pig_scan_plan(uint8_t ch, uint8_t pass, uint16_t yield) {
-#if PIG_FEAT_ADAPTIVE_DWELL
+#if PIG_FEAT_PAIR_SCHED
+  (void)pass; (void)yield;
+  return pig_pair_plan(ch);               // Phase 5: explicit per-channel dwell
+#elif PIG_FEAT_ADAPTIVE_DWELL
   return pig_scan_plan_adaptive(ch, pass, yield);
 #else
   (void)pass; (void)yield;
@@ -87,7 +139,11 @@ static inline uint8_t pig_revisit_count_adaptive(uint8_t channels_with_yield) {
 // Flag-gated wrapper: 0 when the feature is off so callers skip the whole
 // revisit phase (sweep stays fast-only = legacy behavior).
 static inline uint8_t pig_revisit_count(uint8_t channels_with_yield) {
-#if PIG_FEAT_ADAPTIVE_DWELL
+#if PIG_FEAT_PAIR_SCHED
+  (void)channels_with_yield;
+  return 0;   // pair sched cycles the assigned list once per sweep (per-channel dwell);
+              // frequent re-cycling gives the revisit cadence, so no separate pass
+#elif PIG_FEAT_ADAPTIVE_DWELL
   return pig_revisit_count_adaptive(channels_with_yield);
 #else
   (void)channels_with_yield;
