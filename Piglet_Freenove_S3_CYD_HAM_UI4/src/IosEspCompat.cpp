@@ -110,6 +110,17 @@ static void ieSendCaps() {
          IE_FW_VERSION, IE_CHIP, ieGpsPresent ? 1 : 0, IE_CHANS);
 }
 
+// GPS presence is reported in WD:CAPS, which goes out exactly once per stream
+// (see ieStartStreaming). If the phone subscribes before the GPS module is
+// producing data, that one line claims gps=0 for the rest of the session. So
+// when the answer changes under us, re-send WD:CAPS on its own: the app treats
+// `caps` as a valid request at any time, and only WD:BEGIN may not be replayed.
+void iosEspCompatSetGpsPresent(bool present) {
+  if (present == ieGpsPresent) return;
+  ieGpsPresent = present;
+  if (ieActive && ieNotifyOn) ieSendCaps();
+}
+
 // The full WD: scan-start handshake, sent exactly once per stream start.
 static void ieSendHandshake() {
   ieSendCaps();
@@ -420,7 +431,7 @@ void iosEspCompatPushAp(const char* bssid, const char* ssid,
 
 void iosEspCompatPushGps(double lat, double lon, double altMeters, int sats) {
   if (!ieActive || !ieNotifyOn) return;
-  ieGpsPresent = true;                       // runtime presence-detect for WD:CAPS gps=1
+  iosEspCompatSetGpsPresent(true);           // a fix proves a module is attached
   if (!ieStreaming) return;
   if (sats < 0) sats = 0;
   ieEmit("WD:GPS ts=%lu lat=%.6f lon=%.6f alt=%.1f fix=1 sats=%d",

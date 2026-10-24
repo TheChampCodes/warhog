@@ -1369,8 +1369,12 @@ void phoneBridgeSoloTick() {
 
   // Service app commands + telemetry, and push GPS ~1 Hz so the app can pin
   // the mirrored APs to our position.
-  if (soloBridgeIosEsp) iosEspCompatTick();
-  else                  biscuitCompatTick();
+  if (soloBridgeIosEsp) {
+    iosEspCompatSetGpsPresent(gps.charsProcessed() > 0);   // see coreModeTick
+    iosEspCompatTick();
+  } else {
+    biscuitCompatTick();
+  }
 
   static uint32_t soloGpsMs = 0;
   const uint32_t nowg = millis();
@@ -1467,8 +1471,16 @@ void biscuitReporterFlush() {
 void coreModeTick() {
   if (!meshCoreActive) return;
   // Service whichever phone-app bridge this session brought up.
-  if (coreBleIsIosEsp) iosEspCompatTick();   // Wardrive Go: commands + WD: telemetry
-  else                 biscuitCompatTick();  // Biscuit Manager: commands + telemetry
+  if (coreBleIsIosEsp) {
+    // WD:CAPS is sent once, when the phone subscribes, so tell the bridge
+    // whether a GPS module is WIRED (chars arriving) rather than letting it
+    // infer presence from the first fix — otherwise a phone that connects
+    // before lock is told gps=0 for the whole session.
+    iosEspCompatSetGpsPresent(gps.charsProcessed() > 0);
+    iosEspCompatTick();                      // Wardrive Go: commands + WD: telemetry
+  } else {
+    biscuitCompatTick();                     // Biscuit Manager: commands + telemetry
+  }
   uint32_t now = millis();
 
   // Stream the device position ~1 Hz so the app can pin APs to our location.

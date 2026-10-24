@@ -335,25 +335,33 @@ void biscuitCompatSnapshotComplete(uint16_t snapId) {
 void biscuitCompatTick() {
   if (!bcActive) return;
 
-  // 1. Answer inbound commands.
+  // 1. Answer inbound commands. Replies ride the SAME outbound ring as telemetry
+  // instead of being notified from here: a bare notify() is silently discarded
+  // when the controller is out of buffers, and a lost RSP: line leaves the app
+  // spinning forever. The drain below handles both with backpressure, and the
+  // ring also fixes the ordering of CMD:getnodeconfig — its config blob is
+  // enqueued by the handler, so it now goes out ahead of its own RSP:...:OK.
   while (cmdHead != cmdTail) {
     uint8_t i = cmdHead;
     cmdHead = (cmdHead + 1) % CMD_RING;
     String reply = biscuitHandleCommand(String(cmdRing[i].line));
-    if (reply.length() && chResponse) {
-      chResponse->setValue((uint8_t*)reply.c_str(), reply.length());
-      chResponse->notify();
-    }
+    if (reply.length()) txEnqueue(reply.c_str(), reply.length());
   }
 
-  // 2. Stream queued telemetry (DATA:AP / DATA:GPS), capped per tick.
+  // 2. Stream queued replies + telemetry (RSP: / DATA:AP / DATA:GPS), capped per
+  // tick and WITH BACKPRESSURE. NimBLE's notify() returns false when the
+  // controller is out of buffers, and every notification past that point is
+  // silently dropped — not queued. So advance the ring ONLY on an accepted
+  // notify and leave the rest for the next tick. (Telemetry survived this
+  // because the app dedups by BSSID and re-sightings keep coming, but a burst
+  // of command replies or snapshot lines did not. Same rule as IosEspCompat.)
   if (respSubscribed && chResponse) {
     uint16_t sent = 0;
     while (txHead != txTail && sent < TX_PER_TICK) {
       uint16_t i = txHead;
+      if (!chResponse->notify((uint8_t*)txRing[i].line, strlen(txRing[i].line)))
+        break;                               // buffers full: retry this slot next tick
       txHead = (txHead + 1) % TX_RING;
-      chResponse->setValue((uint8_t*)txRing[i].line, strlen(txRing[i].line));
-      chResponse->notify();
       sent++;
     }
     dbgSent += sent;

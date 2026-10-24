@@ -46,3 +46,13 @@ void iosEspCompatPushAp(const char* bssid, const char* ssid,
                         int channel, int rssi, const char* auth);
 // Forward a GPS fix -> WD:GPS. `sats` = satellites in use (0 if unknown).
 void iosEspCompatPushGps(double lat, double lon, double altMeters, int sats);
+
+// Report whether a GPS module is ATTACHED, independent of whether it has a fix
+// yet (drive it from e.g. `gps.charsProcessed() > 0`). WD:CAPS carries this as
+// gps=0/1, and the handshake that contains it is sent once, at the moment the
+// phone subscribes — so without this the app is told gps=0 for the whole
+// session whenever it connects before the first fix. Changing the value while a
+// phone is connected re-sends WD:CAPS alone, which the app accepts at any time
+// (unlike WD:BEGIN, which must never be replayed). Optional: the first
+// iosEspCompatPushGps() also flips it on.
+void iosEspCompatSetGpsPresent(bool present);
