@@ -7,7 +7,7 @@
 // channel, or a record. Flip PIG_FEAT_METRICS to 0 to compile it out entirely.
 //
 // Requires the scheduler headers on the include path (platformio.ini adds
-// -I../../scheduler). See scheduler/DESIGN.md §13 and scheduler/HANDOFF.md.
+// -I../scheduler). See scheduler/DESIGN.md §13 and scheduler/HANDOFF.md.
 #pragma once
 #include <Arduino.h>
 

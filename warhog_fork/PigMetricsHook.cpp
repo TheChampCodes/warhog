@@ -3,7 +3,7 @@
 
 #if PIG_FEAT_METRICS
 #include <string.h>
-#include "pig_metrics.h"   // scheduler/ (via -I../../scheduler)
+#include "pig_metrics.h"   // scheduler/ (via -I../scheduler)
 #include "pig_proto.h"     // crc16_ccitt
 #include "bssid_cache.h"
 #include "Globals.h"       // TinyGPSPlus gps; bool gpsHasFix;

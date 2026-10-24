@@ -87,7 +87,7 @@ static bool coreStoreEnqueue(const String& mac, const String& ssid, const String
 #define PIG_FEAT_DYNAMIC_ASSIGN 0
 #endif
 #if PIG_FEAT_DYNAMIC_ASSIGN
-#include "yield_sched.h"   // scheduler/ (via -I../../scheduler)
+#include "yield_sched.h"   // scheduler/ (via -I../scheduler)
 static ChanStat  gChanStat[PIG_MAX_CH];
 static uint16_t  gChanHits[PIG_MAX_CH];
 static uint32_t  gYieldLastMs = 0;
