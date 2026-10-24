@@ -1295,6 +1295,7 @@ static void nodeDoScanTick() {
       String bssid = WiFi.BSSIDstr(i);
       String ssid  = WiFi.SSID(i);
       String auth  = meshAuthModeToString(WiFi.encryptionType(i));
+      const String authPhone = auth;   // clean form for the phone bridge (before any bracket rewrite)
       // A plain-reply Biscuit Core expects the bracketed AuthMode token set
       // its own nodes emit; a WarHog/JCMK Core takes the bare form unchanged.
       if (biscuitPlainReplyPending) {
@@ -1310,6 +1311,10 @@ static void nodeDoScanTick() {
       }
       int    ch    = WiFi.channel(i);
       int    rssi  = WiFi.RSSI(i);
+      // Mirror this sighting to the phone app (clean auth), so a node reports to
+      // the Biscuit Manager / Wardrive Go app like Core and solo do. No-op unless
+      // the bridge is up (cfg.blePhoneSolo).
+      phoneBridgeSoloPushAp(bssid.c_str(), ssid.c_str(), authPhone.c_str(), ch, rssi);
       String line  = bssid + "," + ssid + "," + auth + ","
                    + String(ch) + "," + String(rssi) + ",W";
       jcmkSendText(line);
@@ -1327,7 +1332,9 @@ static void nodeDoScanTick() {
 void enterNodeMode() {
   Serial.println("[MESH] Entering node mode");
   biscuitReporterReset();  // release ESP-NOW ownership from the solo reporter
-  bleScannerShutdown();    // free the BT controller so ESP-NOW has clean 2.4 GHz airtime
+  bleScannerShutdown();    // stop the BLE *scan* so ESP-NOW gets clean 2.4 GHz airtime
+                           // (the lightweight phone-app GATT bridge may still come
+                           //  back up via phoneBridgeSoloTick when cfg.blePhoneSolo)
   meshNodeActive        = false;
   jcmkHaveCore          = false;
   jcmkCoreFoundPending  = false;
@@ -1526,13 +1533,19 @@ static void biscuitOnRecv(const esp_now_recv_info_t* info,
 }
 
 // ================================================================
-//  Solo-mode phone bridge (cfg.blePhoneSolo)
+//  Phone-app bridge for non-Core modes (cfg.blePhoneSolo)
 //
 //  In Core mode the phone bridge is mandatory — the app is the only window
-//  into mesh traffic — so enterCoreMode() owns it. Solo wardriving used to
-//  leave BLE idle, which meant the app saw nothing from a device that was not
-//  in a mesh. This brings the SAME bridge up while solo and feeds it from the
-//  local scanner, so one app works for both roles.
+//  into mesh traffic — so enterCoreMode() owns it. This runs the SAME bridge
+//  in BOTH other roles so the Biscuit Manager / Wardrive Go app sees the
+//  device regardless of mode:
+//    - Solo: fed from the local scanner (phoneBridgeSoloPushAp, in Scanner.cpp).
+//    - Node: fed from the node scan loop (nodeDoScanTick), so a worker reports
+//      its own sightings to the app as well as handing records to the Core.
+//  Node mode scans and runs ESP-NOW, so BLE now coexists with both; expect a
+//  small scan/mesh airtime cost while a phone is connected (same tradeoff Core
+//  already accepts). Because the bridge is held across the solo↔node transition
+//  it is not torn down when entering node mode — the phone stays connected.
 //
 //  Radio ownership: the bridge only advertises + serves GATT, which coexists
 //  with a BLE scan, but NimBLEDevice::init/deinit is shared with the
@@ -1562,8 +1575,10 @@ static void soloBridgeStop() {
 }
 
 void phoneBridgeSoloTick() {
-  // A mesh role owns the bridge (Core) or the radio outright (Node).
-  if (meshCoreActive || meshNodeActive) { soloBridgeStop(); return; }
+  // Core runs its own mandatory bridge (enterCoreMode owns it); solo and node
+  // share this one. In node mode we keep it up and serviced rather than tearing
+  // it down, so the app sees the worker too.
+  if (meshCoreActive) { soloBridgeStop(); return; }
 
   if (!cfg.blePhoneSolo) { soloBridgeStop(); return; }
 

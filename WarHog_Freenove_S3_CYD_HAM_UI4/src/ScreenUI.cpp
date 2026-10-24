@@ -192,7 +192,7 @@ const SettingDef SETTINGS[] = {
   {SettingKind::Choice, "BLUETOOTH SCAN", "bluetoothScan", CHOICES(ON_OFF), false, "Log BLE for WDG points"},
   {SettingKind::Choice, "BISCUIT REPORT", "biscuitReport", CHOICES(ON_OFF), false, "Report to Biscuit Mgr"},
   {SettingKind::Choice, "CORE BLE APP", "blePersonality", CHOICES(BLE_APPS), true, "Biscuit or Wardrive Go"},
-  {SettingKind::Choice, "PHONE APP SOLO", "blePhoneSolo", CHOICES(ON_OFF), false, "Stream solo scans over BLE"},
+  {SettingKind::Choice, "PHONE APP BLE", "blePhoneSolo", CHOICES(ON_OFF), false, "Stream solo & node scans over BLE"},
   {SettingKind::Choice, "SPEED UNITS", "speedUnits", CHOICES(SPEED_UNITS), false, nullptr},
   {SettingKind::Choice, "MESH MODE ON BOOT", "meshModeOnBoot", CHOICES(MESH_MODES), true, nullptr},
 

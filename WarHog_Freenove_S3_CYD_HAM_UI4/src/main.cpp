@@ -346,9 +346,9 @@ void loop() {
   pwnagotchiDetectTick();
   rawCaptureTick();
 
-  // Solo wardriving streams to the phone app over BLE too (cfg.blePhoneSolo).
-  // Outside the mesh pages a mesh role may still be live, so the tick itself
-  // checks the role flags and tears the bridge down when one is.
+  // Solo AND node wardriving stream to the phone app over BLE (cfg.blePhoneSolo);
+  // Core runs its own bridge. The tick checks the role flags itself — it keeps the
+  // bridge up in solo/node and tears it down only when Core takes over.
   phoneBridgeSoloTick();
 
   if (currentPage == 5) {
