@@ -17,7 +17,7 @@ flag's ON path gets its own test TU (`test_dwell_on.cpp`, `test_pair_on.cpp`).
 
 | Flag | Phase | What it does |
 |---|---|---|
-| `PIG_FEAT_METRICS` | 0 | 1 Hz `PIGM,` metrics line (piglet_fork) |
+| `PIG_FEAT_METRICS` | 0 | 1 Hz `PIGM,` metrics line (warhog_fork) |
 | `PIG_FEAT_DEDUP` | 1 | worker-side BSSID dedup |
 | `PIG_FEAT_ADAPTIVE_DWELL` | 2 | two-pass sweep: fast active, then yield-weighted passive revisits; DFS passive |
 | `PIG_FEAT_DYNAMIC_ASSIGN` | 3 | Core yield-weighted channel assignment (`PIG_MSG_ADMIN_EXT`) |

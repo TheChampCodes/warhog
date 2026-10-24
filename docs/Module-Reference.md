@@ -1,7 +1,7 @@
 # Module Reference
 
 Firmware source modules and their public API. Signatures are from the S3 project
-(`Piglet_Freenove_S3_CYD_HAM_UI4/src/`); the C5 Core (`Arduino Files/piglet_fork/`) has
+(`WarHog_Freenove_S3_CYD_HAM_UI4/src/`); the C5 Core (`Arduino Files/warhog_fork/`) has
 the same subsystems plus `PigWorld` and `PigMetricsHook`. Internal `static` helpers are
 omitted — follow the `.cpp` for those.
 
@@ -140,7 +140,7 @@ See [Data & Uploads](Data-and-Uploads.md).
 - `batteryMonitorTick()`, `bool batteryMonitorAvailable()`, `float batteryVoltage()`, `int batteryPercent()`.
 
 ---
-## C5 Core extras (`Arduino Files/piglet_fork/`)
+## C5 Core extras (`Arduino Files/warhog_fork/`)
 - **`PigWorld`** — the 1-bit pixel-art animation engine (pig flocking scales 1→6 with node
   count, 2.4 GHz occupancy histogram). See [Display & UI](Display-and-UI.md).
 - **`PigMetricsHook`** — hard-wires the Phase-0 `PIGM,` metrics line (see [Serial & Telemetry](Serial-and-Telemetry.md)).

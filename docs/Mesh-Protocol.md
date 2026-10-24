@@ -1,7 +1,7 @@
 # Mesh Protocol
 
-Piglet nodes coordinate over **ESP-NOW on channel 6** (`JCMK_ESPNOW_CH`). The base
-protocol is JCMK (the Wardriver/Biscuit lineage); Piglet adds extension message types
+WarHog nodes coordinate over **ESP-NOW on channel 6** (`JCMK_ESPNOW_CH`). The base
+protocol is JCMK (the Wardriver/Biscuit lineage); WarHog adds extension message types
 for the adaptive scheduler that legacy Cores safely ignore.
 
 ## Roles & lifecycle
@@ -15,14 +15,14 @@ for the adaptive scheduler that legacy Cores safely ignore.
   sub-clusters. Beyond 12, extra nodes don't register.
 
 ## Message types
-Legacy JCMK/Biscuit types are `1..~10`; Piglet extensions are `≥ 0x20` so stock Cores
+Legacy JCMK/Biscuit types are `1..~10`; WarHog extensions are `≥ 0x20` so stock Cores
 drop them.
 
 | Value | Name | Direction | Purpose |
 |---|---|---|---|
 | 1 | `JCMK_MSG_CORE_REQUEST` | Node → Core | "I need a Core" |
 | 2 | `JCMK_MSG_CORE_REPLY` | Core → Node | "I am your Core" |
-| 3 | `JCMK_MSG_HEARTBEAT` | both | liveness; Piglet carries mesh size in the heartbeat text |
+| 3 | `JCMK_MSG_HEARTBEAT` | both | liveness; WarHog carries mesh size in the heartbeat text |
 | 4 | `JCMK_MSG_TEXT` | Node → Core | a scan record: `BSSID,SSID,AUTH,CH,RSSI,W` (212 B) |
 | 5 | `JCMK_MSG_ADMIN` | Core → Node | role assignment |
 | 10 | config update | Core → Node | `channels=<list>;dwell=<ms>` (Biscuit node channel config) |
@@ -53,7 +53,7 @@ typedef struct __attribute__((packed)) {
   uint8_t  channels[40];    // explicit list (first n valid)
 } pig_admin_ext_t;          // 52 B max on the wire
 ```
-A flag-on Core sends each confirmed Piglet node `{1,6,11}` plus a yield-ranked slice of
+A flag-on Core sends each confirmed WarHog node `{1,6,11}` plus a yield-ranked slice of
 5 GHz via 0x23; legacy peers keep the contiguous-range ADMIN. **All** workers parse 0x23
 unconditionally (so `pig_proto.h` must be `#include`d even with dedup off) and fold it
 into their explicit-list scan path.

@@ -8,7 +8,7 @@ ESP32 toolchain needed. From `scheduler/tests/`:
 ```
 On Windows (no host g++) run it under WSL:
 ```bash
-wsl bash -c "cd /mnt/c/Users/skons/Desktop/piglet/scheduler/tests && bash run.sh"
+wsl bash -c "cd /mnt/c/Users/skons/Desktop/warhog/scheduler/tests && bash run.sh"
 ```
 Current suite: **175 checks, 0 failures** across three TUs plus the replay smoke test.
 
@@ -30,18 +30,18 @@ The **OFF path must stay byte-identical** to legacy — new feature code goes be
 broken env can't overwrite the live flasher.
 
 ## Keeping the C5 header copies in sync
-The Arduino sketch `TDongleC5_Piglet/` has no include path, so it keeps **byte-identical
+The Arduino sketch `TDongleC5_WarHog/` has no include path, so it keeps **byte-identical
 copies** of `pig_proto.h`, `pig_dedup.h`, and `pig_dwell.h`. After editing a scheduler
 header:
 ```bash
-cp scheduler/pig_dwell.h TDongleC5_Piglet/pig_dwell.h   # (and proto/dedup as needed)
-diff -q scheduler/pig_dwell.h TDongleC5_Piglet/pig_dwell.h   # must be identical
+cp scheduler/pig_dwell.h TDongleC5_WarHog/pig_dwell.h   # (and proto/dedup as needed)
+diff -q scheduler/pig_dwell.h TDongleC5_WarHog/pig_dwell.h   # must be identical
 ```
 TDongle is **not** in CI, so those copies get no build gate — review them by hand.
 
 ## Gotchas worth knowing
-- **Arduino build artifact:** before committing `piglet_fork`, remove
-  `Arduino Files/piglet_fork/Piglet.ino.cpp` (a generated artifact; never commit it).
+- **Arduino build artifact:** before committing `warhog_fork`, remove
+  `Arduino Files/warhog_fork/WarHog.ino.cpp` (a generated artifact; never commit it).
 - **S3 flashing** needs esptool `--before usb-reset` (see [Build & Flash](Build-and-Flash.md)).
 - A one-off `PLATFORMIO_BUILD_FLAGS` build **overwrites** `firmware.factory.bin` in the
   shared `.pio/build/<env>/` dir — rebuild at release flags before flashing a release image.

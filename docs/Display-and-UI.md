@@ -8,7 +8,7 @@ same way regardless of hardware.
 |---|---|---|
 | Freenove S3 CYD | TFT_eSPI (ILI9341, SPI) | shares the SPI bus with the SD card |
 | Guition JC8048W550 | LovyanGFX (800×480 RGB) | renders to a RAM sprite, then scale-blits |
-| XIAO C5 / PigletNode C3 | SSD1306 OLED (I²C) | small monochrome |
+| XIAO C5 / WarHogNode C3 | SSD1306 OLED (I²C) | small monochrome |
 | T-Dongle C5 | ST7735 color TFT | + APA102 status LED |
 | Waveshare C6 | ST7789 TFT | 172×320 |
 

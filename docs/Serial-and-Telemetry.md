@@ -20,7 +20,7 @@ Handled by `processSerialCommands()` in `main.cpp`:
 > here predicts `sdmmc … err=0x101` (ENOMEM) under load.
 
 ## Live metric lines
-### `PIGM,` — Phase-0 acquisition metrics (piglet_fork only)
+### `PIGM,` — Phase-0 acquisition metrics (warhog_fork only)
 A 1 Hz CSV accountant line (DESIGN §13), hard-wired via `PigMetricsHook`:
 ```
 PIGM, t_ms, uniq_bssid_total, uniq_per_min, gross_per_min, mesh_tx_bytes,

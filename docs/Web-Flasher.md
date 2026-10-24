@@ -21,7 +21,7 @@ web-flasher/
 
 ## Manifests
 Each `manifests/<env>.json` points at a single merged image flashed at offset `0`:
-`esp32c3_oled`, `freenove-s3-cyd-ham-ui4`, `guition-jc8048w550`, `pigletnode_c5`,
+`esp32c3_oled`, `freenove-s3-cyd-ham-ui4`, `guition-jc8048w550`, `warhognode_c5`,
 `waveshare_c6`, plus `xiao_c5`. The `*-ham` manifests
 (`xiao_c5-ham`, `pigletnode_c5-ham`, `tdongle_c5-ham`) point at **upstream Hamspiced
 release** binaries, not this fork's build — don't use them to flash this fork's firmware.

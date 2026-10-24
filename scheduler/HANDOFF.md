@@ -27,8 +27,8 @@ the code in this folder was the Phase-0 groundwork already written and tested.
 
 ## What this work is
 
-Moving the Piglet mesh from **static even channel-slicing** (today:
-`perNode = JCMK_NUM_CHANNELS / count` in `Arduino Files/piglet_fork/MeshNode.cpp`)
+Moving the WarHog mesh from **static even channel-slicing** (today:
+`perNode = JCMK_NUM_CHANNELS / count` in `Arduino Files/warhog_fork/MeshNode.cpp`)
 to **yield-driven adaptive acquisition**: worker-side BSSID dedup, adaptive
 dwell/revisit, dynamic yield-based channel assignment, FreeRTOS core isolation,
 and GPS-aware scheduling. Full rationale, schemas, algorithms, and the phased
@@ -69,8 +69,8 @@ rollout are in `DESIGN.md`.
    behavior change. Then run a board and capture live baselines before flipping any
    `PIG_FEAT_*`. Use `tests/replay.cpp` to A/B a captured corpus offline.
 1. **Worker dedup** — wire `BssidCache` into the worker scan path behind
-   `PIG_FEAT_DEDUP`. In `PigletNode/PigletNode.ino` (headless C5 worker) and the
-   node path of `Arduino Files/piglet_fork/MeshNode.cpp`, replace "send every
+   `PIG_FEAT_DEDUP`. In `WarHogNode/WarHogNode.ino` (headless C5 worker) and the
+   node path of `Arduino Files/warhog_fork/MeshNode.cpp`, replace "send every
    found record each cycle" with classify→FULL/DELTA/SUPPRESS. Target: mesh
    bytes/unique-BSSID −40%, unique/min ≥ parity.
 2. **Adaptive dwell/revisit** — fast active first pass + yield-weighted passive
@@ -78,7 +78,7 @@ rollout are in `DESIGN.md`.
 3. **Dynamic assignment** — replace the even split in `coreReassignChannels()`
    with `sched_assign()` from `yield_sched.h`; send explicit channel lists via a
    new `PIG_MSG_ADMIN_EXT` (`PIG_FEAT_DYNAMIC_ASSIGN`). Keep legacy contiguous
-   ADMIN for non-Piglet peers (detect via existing marker handshake / `isPiglet`).
+   ADMIN for non-WarHog peers (detect via existing marker handshake / `isWarHog`).
 4. **Core isolation** — split RT (ESP-NOW/sched/scan on core 0) from non-RT
    (SD/GNSS/UI/upload on core 1) with the bounded queues (`PIG_FEAT_CORE_ISO`).
    Note: ESP32-C3 is single-core → priority-only fallback (DESIGN §7.3).
@@ -87,9 +87,9 @@ rollout are in `DESIGN.md`.
 
 - **Module logic tests (fast, no hardware):** `./scheduler/tests/run.sh`
 - **On-target firmware (needs PlatformIO + a board):**
-  - Worker:      `cd PigletNode && pio run -t upload`
+  - Worker:      `cd WarHogNode && pio run -t upload`
   - C3 node:     `cd c3_node && pio run -t upload`
-  - XIAO C5 Core: `cd "Arduino Files/piglet_fork" && pio run -t upload`
+  - XIAO C5 Core: `cd "Arduino Files/warhog_fork" && pio run -t upload`
   - Monitor:     `pio device monitor -b 115200`
 
 ## Hard invariants (do not break)
@@ -98,7 +98,7 @@ rollout are in `DESIGN.md`.
 - **DFS 5 GHz channels (52–144) must be passive-only** — compliance, not a flag.
 - Never drop a NEW/unique BSSID before a DELTA under backpressure.
 - New message types stay **≥ 0x20** so legacy Cores ignore them.
-- Legacy JCMK/Biscuit peers keep working: binary batches are Piglet↔Piglet only.
+- Legacy JCMK/Biscuit peers keep working: binary batches are WarHog↔WarHog only.
 
 ## Open decisions for the user
 

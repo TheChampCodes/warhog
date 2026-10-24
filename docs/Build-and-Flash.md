@@ -11,11 +11,11 @@ pio run -d "<project dir>" -e "<env>"
 ```
 Examples:
 ```bash
-pio run -d Piglet_Freenove_S3_CYD_HAM_UI4 -e freenove-s3-cyd-ham-ui4
-pio run -d Piglet_Freenove_S3_CYD_HAM_UI4 -e guition-jc8048w550
-pio run -d PigletNode -e pigletnode_c5
+pio run -d WarHog_Freenove_S3_CYD_HAM_UI4 -e freenove-s3-cyd-ham-ui4
+pio run -d WarHog_Freenove_S3_CYD_HAM_UI4 -e guition-jc8048w550
+pio run -d WarHogNode -e warhognode_c5
 pio run -d c3_node   -e esp32c3_oled
-pio run -d "Arduino Files/piglet_fork" -e xiao_c5
+pio run -d "Arduino Files/warhog_fork" -e xiao_c5
 ```
 Build artifacts land in `<project>/.pio/build/<env>/` — `firmware.bin`, `bootloader.bin`,
 `partitions.bin`, and the merged `firmware.factory.bin` (bootloader + partitions +
@@ -74,7 +74,7 @@ single flashable image with `esptool merge_bin`, assembles the web-flasher with 
 - The **deploy job needs the build job** — if any env fails to build, the deploy is
   skipped, so a broken env never overwrites the live flasher.
 - Matrix: `xiao_c5`, `freenove-s3-cyd-ham-ui4`, `guition-jc8048w550`, `esp32c3_oled`,
-  `pigletnode_c5`, `waveshare_c6`. `TDongleC5_Piglet` is an Arduino sketch and is **not**
+  `warhognode_c5`, `waveshare_c6`. `TDongleC5_WarHog` is an Arduino sketch and is **not**
   in CI (its header copies get no build gate).
 - Live flasher: **https://olosnoks.github.io/piglet** — see [Web Flasher](Web-Flasher.md).
 

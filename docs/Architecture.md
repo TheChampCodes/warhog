@@ -1,7 +1,7 @@
 # Architecture
 
-## What Piglet is
-A Piglet device scans the RF environment and records what it finds. Each scan result
+## What WarHog is
+A WarHog device scans the RF environment and records what it finds. Each scan result
 (an AP or BLE device) is tagged with a GPS position and a UTC timestamp and written to
 microSD as a **WiGLE-compliant CSV row**; raw 802.11 frames can additionally be logged
 as **PCAP**. Devices can run alone (**solo wardriving**) or join an **ESP-NOW mesh** in
