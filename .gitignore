@@ -8,3 +8,6 @@ tools/
 
 # CI-built firmware images (produced by the Pages workflow, never committed)
 web-flasher/firmware/
+
+# Arduino-CLI build output (per-sketch); not our firmware — PlatformIO .pio/ is authoritative
+build/
