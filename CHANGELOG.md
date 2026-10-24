@@ -1,4 +1,4 @@
-# Changelog — olosnoks/piglet (fork)
+# Changelog — olosnoks/warhog (fork)
 
 This fork tracks [Hamspiced/piglet](https://github.com/Hamspiced/piglet) upstream and adds
 multi-board support, a Marauder/BLE security suite, PigWorld graphics, and a web flasher.

@@ -31,7 +31,7 @@ drop them.
 | `0x22` | `PIG_MSG_YIELD_HB` | Node → Core | heartbeat + per-channel yield counters |
 | `0x23` | `PIG_MSG_ADMIN_EXT` | Core → Node | explicit yield-ordered channel list + knobs |
 
-All structs are defined in [`scheduler/pig_proto.h`](https://github.com/olosnoks/piglet/blob/main/scheduler/pig_proto.h),
+All structs are defined in [`scheduler/pig_proto.h`](https://github.com/olosnoks/warhog/blob/main/scheduler/pig_proto.h),
 carry the 4-byte magic `"ENOW"`, and are CRC16-CCITT protected (`crc16_ccitt`).
 
 ### The 212-byte invariant

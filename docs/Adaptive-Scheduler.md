@@ -3,12 +3,12 @@
 The scheduler moves the mesh from **static even channel-slicing** to **yield-driven
 adaptive acquisition**: scan the channels that actually produce APs, don't duplicate work,
 and keep the ESP-NOW RX path deadline-bound. It lives in
-[`scheduler/`](https://github.com/olosnoks/piglet/tree/main/scheduler) as standalone,
+[`scheduler/`](https://github.com/olosnoks/warhog/tree/main/scheduler) as standalone,
 host-testable headers (no Arduino/Wi-Fi deps where avoidable; `now` is passed in), wired
 into every node firmware's scan loop.
 
-Full design: [`scheduler/DESIGN.md`](https://github.com/olosnoks/piglet/blob/main/scheduler/DESIGN.md).
-Current state & gotchas: [`scheduler/CLAUDE.md`](https://github.com/olosnoks/piglet/blob/main/scheduler/CLAUDE.md).
+Full design: [`scheduler/DESIGN.md`](https://github.com/olosnoks/warhog/blob/main/scheduler/DESIGN.md).
+Current state & gotchas: [`scheduler/CLAUDE.md`](https://github.com/olosnoks/warhog/blob/main/scheduler/CLAUDE.md).
 
 ## Feature flags
 Each phase is a compile-time flag. **On by default** in released builds; set to `0` to get

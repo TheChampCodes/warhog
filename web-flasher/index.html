@@ -159,7 +159,7 @@
     </div>
     <p class="muted" style="font-size:12.5px;margin:10px 0 0">
       Pick your board, hit <b style="color:var(--text)">Install</b>, and choose the serial port when prompted.
-      Images are built automatically from <a href="https://github.com/olosnoks/piglet">olosnoks/piglet</a>.
+      Images are built automatically from <a href="https://github.com/olosnoks/warhog">olosnoks/warhog</a>.
       Flashing a whole batch? <a href="batch.html">Flash several boards at once →</a>
     </p>
   </div>
@@ -345,7 +345,7 @@ esptool --chip esp32c5 \
   </div>
 
   <footer>
-    <span><a href="https://github.com/olosnoks/piglet">github.com/olosnoks/piglet</a> · GPL</span>
+    <span><a href="https://github.com/olosnoks/warhog">github.com/olosnoks/warhog</a> · GPL</span>
     <span><a href="ham/">ham's official build (test) →</a></span>
     <span><a href="batch.html">batch flasher →</a></span>
     <span>build __VERSION__</span>
@@ -359,7 +359,7 @@ esptool --chip esp32c5 \
   // Fork / official firmware-source toggle on dual-source cards.
   (function mountFwToggles(){
     var NOTE = {
-      fork: 'Flashing <b>skon’s fork</b> — built from olosnoks/piglet.',
+      fork: 'Flashing <b>skon’s fork</b> — built from olosnoks/warhog.',
       ham:  'Flashing the <b>official</b> firmware — Hamspiced/piglet latest release.'
     };
     document.querySelectorAll('.board[data-fw-dual]').forEach(function(board){

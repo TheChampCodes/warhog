@@ -2,7 +2,7 @@
   "name": "WarHog — Waveshare C6 LCD 1.47\"",
   "version": "__VERSION__",
   "new_install_improv_wait_time": 0,
-  "funding_url": "https://github.com/olosnoks/piglet",
+  "funding_url": "https://github.com/olosnoks/warhog",
   "builds": [
     {
       "chipFamily": "ESP32-C6",

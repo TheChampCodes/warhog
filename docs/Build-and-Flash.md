@@ -76,7 +76,7 @@ single flashable image with `esptool merge_bin`, assembles the web-flasher with 
 - Matrix: `xiao_c5`, `freenove-s3-cyd-ham-ui4`, `guition-jc8048w550`, `esp32c3_oled`,
   `warhognode_c5`, `waveshare_c6`. `TDongleC5_WarHog` is an Arduino sketch and is **not**
   in CI (its header copies get no build gate).
-- Live flasher: **https://olosnoks.github.io/piglet** — see [Web Flasher](Web-Flasher.md).
+- Live flasher: **https://olosnoks.github.io/warhog** — see [Web Flasher](Web-Flasher.md).
 
 ## Partitions & flash
 16 MB flash, `default_16MB.csv` partition table, `qio_opi` memory type on the S3 boards

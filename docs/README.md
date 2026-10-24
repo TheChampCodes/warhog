@@ -8,7 +8,7 @@ and a browser flasher.
 This wiki documents the code: how the firmware is organized, what each subsystem and
 module does, the mesh wire protocol, the adaptive scheduler (Phases 1–5), and how to
 build, flash, and extend the project. For a product-level overview and the hardware
-matrix, see the repository [`README.md`](https://github.com/olosnoks/piglet/blob/main/README.md).
+matrix, see the repository [`README.md`](https://github.com/olosnoks/warhog/blob/main/README.md).
 
 ## Start here
 - **[Architecture](Architecture.md)** — the big picture: boards, roles, the boot/loop model, and how a scan becomes a logged row.
@@ -33,4 +33,4 @@ matrix, see the repository [`README.md`](https://github.com/olosnoks/piglet/blob
 
 ---
 *This wiki describes `main`. Where a feature is flag-gated, the flag name (`PIG_FEAT_*`)
-is given so you can trace it to [`scheduler/`](https://github.com/olosnoks/piglet/tree/main/scheduler).*
+is given so you can trace it to [`scheduler/`](https://github.com/olosnoks/warhog/tree/main/scheduler).*

@@ -3,7 +3,7 @@
 A zero-install browser flasher (`web-flasher/`) built on **ESP Web Tools** (WebSerial).
 It serves one manifest per board and shows an SVG preview of each device's screen.
 
-- **Live:** https://olosnoks.github.io/piglet (GitHub Pages)
+- **Live:** https://olosnoks.github.io/warhog (GitHub Pages)
 - Needs a Chromium browser (Chrome/Edge) for WebSerial.
 - The page footer shows the build version `<ref>+<sha7>` (e.g. `main+a1b2c3d`) — confirm
   it matches the commit you expect before flashing.
