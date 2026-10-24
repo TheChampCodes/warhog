@@ -46,6 +46,18 @@ static QueueHandle_t gLogQ      = nullptr;
 static TaskHandle_t  gStoreTask = nullptr;
 static volatile bool gStoreRun  = false;
 static volatile uint32_t gStoreDrops = 0;   // records dropped when the SD queue is full
+#if PIG_FEAT_CORE_ISO
+// Phase 4 acceptance instrumentation (DESIGN §13: "0 RX deadline misses; RX jitter
+// p95 < 5 ms @ ≥12 nodes"). An ESP-NOW packet dropped because its RX ring was full
+// IS a deadline miss — the core-1 drain couldn't keep up. The coreModeTick period is
+// the drain cadence; a tick gap > 5 ms is a jitter violation. rx/req drops are
+// cumulative since boot; loop max/gt5 reset each 5 s line so each window stands alone.
+static volatile uint32_t gRxTextDrops = 0;  // JCMK_MSG_TEXT dropped: coreTextBuf full
+static volatile uint32_t gRxReqDrops  = 0;  // CORE_REQUEST dropped: coreReqBuf full
+static uint32_t gLoopLastUs = 0;            // previous coreModeTick micros()
+static uint32_t gLoopMaxUs  = 0;            // widest tick gap this window
+static uint32_t gLoopGt5    = 0;            // ticks exceeding 5 ms this window
+#endif
 static void tStore(void*) {
   PigLogRec r;
   while (gStoreRun) {
@@ -544,6 +556,9 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         coreReqBuf[coreReqTail].band24    = jcmkPacketIsBand24(data, len);
         coreReqTail = next;
       }
+#if PIG_FEAT_CORE_ISO
+      else { gRxReqDrops++; }   // req ring full: node registration lost (RX miss)
+#endif
     } else if (type == JCMK_MSG_TEXT && len >= 11) {
       const jcmk_text_msg_t* tm = (const jcmk_text_msg_t*)data;
       uint8_t next = (coreTextTail + 1) % CORE_TEXT_QUEUE;
@@ -553,6 +568,9 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         coreTextBuf[coreTextTail].line[slen] = '\0';
         coreTextTail = next;
       }
+#if PIG_FEAT_CORE_ISO
+      else { gRxTextDrops++; }  // text ring full: scan record lost (RX miss)
+#endif
       // Update heartbeat for known node; queue unknown node for registration.
       // This handles reconnect: node has jcmkHaveCore=true and skips CORE_REQUEST,
       // but the Core can register it from any received packet (JCMK touchNode pattern).
@@ -1470,6 +1488,16 @@ void biscuitReporterFlush() {
 
 void coreModeTick() {
   if (!meshCoreActive) return;
+#if PIG_FEAT_CORE_ISO
+  // Measure this tick's distance from the last — the RX-drain cadence (DESIGN §13).
+  { uint32_t us = micros();
+    if (gLoopLastUs) {
+      uint32_t gap = us - gLoopLastUs;
+      if (gap > gLoopMaxUs) gLoopMaxUs = gap;
+      if (gap > 5000)       gLoopGt5++;
+    }
+    gLoopLastUs = us; }
+#endif
   // Service whichever phone-app bridge this session brought up.
   if (coreBleIsIosEsp) {
     // WD:CAPS is sent once, when the phone subscribes, so tell the bridge
@@ -1555,9 +1583,14 @@ void coreModeTick() {
   static uint32_t coreIsoLogMs = 0;
   if (now - coreIsoLogMs >= 5000) {
     coreIsoLogMs = now;
-    Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu\n",
+    Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu | rx_drop txt=%lu req=%lu"
+                  " | loop_us max=%lu gt5ms=%lu | nodes=%u\n",
                   gLogQ ? (unsigned)uxQueueMessagesWaiting(gLogQ) : 0u,
-                  (unsigned long)gStoreDrops);
+                  (unsigned long)gStoreDrops,
+                  (unsigned long)gRxTextDrops, (unsigned long)gRxReqDrops,
+                  (unsigned long)gLoopMaxUs, (unsigned long)gLoopGt5,
+                  (unsigned)coreNodeCount);
+    gLoopMaxUs = 0; gLoopGt5 = 0;   // per-window reset so each line is self-contained
   }
 #endif
 
