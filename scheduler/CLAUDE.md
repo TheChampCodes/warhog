@@ -7,9 +7,13 @@ channel-slicing to yield-driven acquisition. Full technical design in
 it predates all firmware wiring, so don't read it as current state.
 
 ## Where things stand
-Phases 0–3 and Phase 4 Step 1 are merged to `main` and **ON by default** in the
-released builds (each board's `platformio.ini` `build_flags` set `-DPIG_FEAT_*=1`).
-Every node firmware's channel sweep now runs through the Phase-2 `PigSweep` FSM.
+Phases 1–4 are merged to `main` and **ON by default** in the released builds (each
+board's `platformio.ini` `build_flags` set `-DPIG_FEAT_*=1`). Every node firmware's
+channel sweep runs through the Phase-2 `PigSweep` FSM. As of 2026-10-24 the whole
+pipeline is **bench-validated on an S3 CYD Core + up to 4 C5 nodes** (dedup, dynamic
+assignment, SD isolation, and the Step-5 RX-drain task). The only thing outstanding is
+formal **≥12-node scale sign-off**, delegated to a larger cluster; day-to-day work from
+here is fine-tuning, not new phases.
 
 | Flag | Phase | What it does | Boards |
 |------|-------|--------------|--------|
@@ -17,7 +21,7 @@ Every node firmware's channel sweep now runs through the Phase-2 `PigSweep` FSM.
 | `PIG_FEAT_DEDUP` | 1 | worker BSSID dedup (~29% airtime saved, validated) | all mesh nodes |
 | `PIG_FEAT_ADAPTIVE_DWELL` | 2 | two-pass sweep: 50 ms active fast pass, then yield-weighted passive revisits; DFS 5 GHz passive | all mesh nodes |
 | `PIG_FEAT_DYNAMIC_ASSIGN` | 3 | yield-weighted channel assignment (`PIG_MSG_ADMIN_EXT`) | Core: piglet_fork, CYD, W550 |
-| `PIG_FEAT_CORE_ISO` | 4 Step 1 | SD logging → own FreeRTOS task + SPI-bus mutex | piglet_fork, CYD, W550 |
+| `PIG_FEAT_CORE_ISO` | 4 Steps 1+5 | SD logging **and** the ESP-NOW record drain each get their own core-0 FreeRTOS task + SPI-bus mutex; `[CORE-ISO]` line reports `rt_us`/`rx_drop`/`txtq_max`/`loop_us` | piglet_fork, CYD, W550 |
 
 **Do NOT change the `#define … 0` defaults in `pig_*.h`** — `tests/test_all.cpp`
 asserts the OFF-default legacy behavior. A flag's ON path gets its own test TU
@@ -69,16 +73,27 @@ byte-identical to this folder's, and remember changes there get no build gate.
 - `pig_proto.h` must be `#include`d **unconditionally** in each firmware — the
   `PIG_MSG_ADMIN_EXT` worker parse needs it even with `PIG_FEAT_DEDUP` off.
 
-## What's left (all bench-gated — needs hardware)
-1. **Validate the ON paths on a live multi-node mesh**, especially `CORE_ISO`
-   (dual-core threading, never run on hardware) and the Phase-2 revisit pass's
-   effect on unique/min. Watch `[CORE-ISO] SD store q: depth=N drops=M` (5 s) and
-   the 1 Hz `PIGM,` line. Disable a suspect board with `-DPIG_FEAT_CORE_ISO=0`.
-2. **Phase 4 Steps 2–5** (UI/GNSS/RT-trio isolation). On piglet_fork the Core
-   screen is drawn inside `coreModeTick` (a 2nd I2C writer), so a blind UI→core
-   move is racy; the C5 is single-core, so Step 1 there is priority-only.
-3. **CYD node-mode reboot** — the CYD crashes when switched to node mode; needs a
-   backtrace over a stable serial link (unresolved).
+## What's left (signed off 2026-10-24 — Phases 1–4 bench-validated)
+Phases 1–4 are implemented, ON by default, and validated on an S3 CYD Core + 4 C5 nodes.
+What remains is sign-off at scale plus one old bug — not new phases.
+
+1. **Formal ≥12-node scale sign-off** (the DESIGN §13 acceptance node count). At 4 nodes
+   the Step-5 RX-drain task holds `rt_us max` 2–3 ms with `gt5ms=0` (< 5 ms jitter target
+   MET) and `rx_drop=0`; confirm that holds at ~12 nodes on a larger cluster. Watch the
+   `[CORE-ISO]` line: `rt_us gt5ms` should stay 0, `rx_drop`/`txtq_max`/`drops` low. The
+   heavy main loop still shows `loop_us max` ~100–220 ms — that's expected and harmless now
+   (RX is decoupled onto core 0); don't chase it. Disable a suspect board with
+   `-DPIG_FEAT_CORE_ISO=0`.
+2. **CYD node-mode reboot** — the CYD crashes when switched to node mode; needs a
+   backtrace over a stable serial link (unresolved, pre-existing).
+3. **Fine-tuning** — `SchedCfg` constants, dwell/revisit counts, yield EWMA, task stack
+   sizes (`uxTaskGetStackHighWaterMark`) are first-guess defaults; tune from field logs.
+
+**Phase 4 note:** the plan's Steps 2–4 (separate UI/GNSS/upload tasks) were NOT needed —
+Step 1 (SD) + Step 5 (RX drain) on core 0 already decouple the deadline-bound path from the
+heavy core-1 loop and meet the jitter target, so UI/GNSS/upload stay in the loop by design.
+Step 5 only fit after reclaiming ~32 KB internal RAM (lazy PCAP buffers in `MarauderTools.cpp`);
+internal heap, not threading, was the binding constraint on the S3 Core.
 
 ## Gotchas (don't relearn these)
 - Before committing piglet_fork, `rm -f "Arduino Files/piglet_fork/Piglet.ino.cpp"`
