@@ -6,6 +6,11 @@
 #include "GPS.h"
 #include "SDUtils.h"
 #include "BleScanner.h"
+// The solo phone bridge shares the NimBLE stack with these, so it needs their
+// "is active" predicates to decide whether its teardown may free the controller.
+#include "BleDetectors.h"
+#include "AppleBleSpam.h"
+#include "BleSpam.h"
 #include "ScreenTelemetry.h"
 #include "pig_dedup.h"   // Scheduler Phase 1: shared worker dedup (flag PIG_FEAT_DEDUP, default OFF)
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
@@ -1308,6 +1313,83 @@ static void biscuitOnRecv(const esp_now_recv_info_t* info,
   if (len < 5) return;
   if (data[0] != 'E' || data[1] != 'N' || data[2] != 'O' || data[3] != 'W') return;
   if (data[4] == JCMK_MSG_CORE_REPLY) biscuitLinked = true;
+}
+
+// ================================================================
+//  Solo-mode phone bridge (cfg.blePhoneSolo)
+//
+//  In Core mode the phone bridge is mandatory — the app is the only window
+//  into mesh traffic — so enterCoreMode() owns it. Solo wardriving used to
+//  leave BLE idle, which meant the app saw nothing from a device that was not
+//  in a mesh. This brings the SAME bridge up while solo and feeds it from the
+//  local scanner, so one app works for both roles.
+//
+//  Radio ownership: the bridge only advertises + serves GATT, which coexists
+//  with a BLE scan, but NimBLEDevice::init/deinit is shared with the
+//  wardriving scanner and the Marauder detectors. So the teardown only frees
+//  the controller when no other consumer is using it (see freeStack).
+// ================================================================
+static bool soloBridgeUp     = false;
+static bool soloBridgeIosEsp = false;
+
+bool phoneBridgeSoloActive() { return soloBridgeUp; }
+
+// True while some other module owns the shared NimBLE stack.
+static bool bleOwnedElsewhere() {
+  return bleScannerActive() || bleDetectorsActive() ||
+         appleBleSpamActive() || bleSpamActive();
+}
+
+static void soloBridgeStop() {
+  if (!soloBridgeUp) return;
+  soloBridgeUp = false;
+  // Only hand the BT controller back if nothing else is on it.
+  const bool freeStack = !bleOwnedElsewhere();
+  if (soloBridgeIosEsp) iosEspCompatStopStandalone(freeStack);
+  else                  biscuitCompatStopStandalone(freeStack);
+  Serial.printf("[SOLO-BLE] Phone bridge down (stack %s)\n",
+                freeStack ? "freed" : "left up for BLE scan/detectors");
+}
+
+void phoneBridgeSoloTick() {
+  // A mesh role owns the bridge (Core) or the radio outright (Node).
+  if (meshCoreActive || meshNodeActive) { soloBridgeStop(); return; }
+
+  if (!cfg.blePhoneSolo) { soloBridgeStop(); return; }
+
+  if (!soloBridgeUp) {
+    // Latch the personality for this solo session, same selection Core makes.
+    soloBridgeIosEsp = (cfg.blePersonality == "wardrivego");
+    if (soloBridgeIosEsp) iosEspCompatBeginStandalone();
+    else                  biscuitCompatBeginStandalone("Piglet");
+    soloBridgeUp = true;
+    Serial.printf("[SOLO-BLE] Phone bridge up (app: %s)\n",
+                  soloBridgeIosEsp ? "Wardrive Go" : "Biscuit Manager");
+  }
+
+  // Service app commands + telemetry, and push GPS ~1 Hz so the app can pin
+  // the mirrored APs to our position.
+  if (soloBridgeIosEsp) iosEspCompatTick();
+  else                  biscuitCompatTick();
+
+  static uint32_t soloGpsMs = 0;
+  const uint32_t nowg = millis();
+  if (gpsHasFix && nowg - soloGpsMs >= 1000) {
+    soloGpsMs = nowg;
+    if (soloBridgeIosEsp)
+      iosEspCompatPushGps(gps.location.lat(), gps.location.lng(),
+                          gps.altitude.meters(), (int)gps.satellites.value());
+    else
+      biscuitCompatPushGps(gps.location.lat(), gps.location.lng(),
+                           gps.altitude.meters(), gps.hdop.hdop());
+  }
+}
+
+void phoneBridgeSoloPushAp(const char* bssid, const char* ssid,
+                           const char* auth, int ch, int rssi) {
+  if (!soloBridgeUp) return;
+  if (soloBridgeIosEsp) iosEspCompatPushAp(bssid, ssid, ch, rssi, auth);
+  else                  biscuitCompatPushAp(bssid, ssid, ch, rssi, auth);
 }
 
 void biscuitReporterReset() {

@@ -7,6 +7,33 @@ the base firmware history.
 
 ## Unreleased
 
+### Phone apps now follow solo wardriving, not just mesh Core mode
+The BLE phone bridge used to come up only in mesh **Core** mode, so a device wardriving on its
+own was invisible to the app even though every piece of plumbing was already there. All three
+Core-capable firmwares now keep the same bridge running while **solo wardriving** and feed it
+from the local scanner, behind a new `blePhoneSolo` setting (**default on**).
+
+- **XIAO C5** (`piglet_fork`) — serves the Piglet app's `BLEBridge` GATT plus the attached
+  Biscuit Manager service. Records are mirrored from `processScanResults()`; the status payload
+  already reported `core:false`, `nodes:0` and the local 2.4/5 GHz found counters, so the app can
+  tell a solo unit from a Core with no app change. Toggle lives in the web UI
+  (*Phone App Over BLE While Solo Wardriving*) and in `wardriver.cfg`.
+- **CYD + W550** — new `phoneBridgeSoloTick()` / `phoneBridgeSoloPushAp()` stand up whichever
+  app the existing `blePersonality` setting selects (Biscuit Manager or Wardrive Go), tick its
+  commands/telemetry, and push GPS at ~1 Hz. Toggle is on the Settings page as
+  *PHONE APP SOLO*. This is distinct from the existing `biscuitReport`, which forwards over
+  **ESP-NOW** to a Biscuit *Core* rather than to a phone.
+- **Radio ownership:** on the S3 boards the bridge shares one NimBLE stack with the wardriving
+  BLE scanner and the Marauder detectors/spam tools. Advertising and GATT coexist with a scan,
+  but `NimBLEDevice::deinit()` does not — so `biscuitCompatStopStandalone()` /
+  `iosEspCompatStopStandalone()` took a `freeStack` argument (default `true`, mesh Core path
+  unchanged) and the solo teardown frees the controller only when `bleScannerActive()`,
+  `bleDetectorsActive()`, `appleBleSpamActive()` and `bleSpamActive()` are all false. Entering
+  any mesh role tears the solo bridge down first.
+
+Not covered: the T-Dongle sketch has no BLE stack of any kind, and its flasher card serves
+Hamspiced upstream's release rather than this tree.
+
 ### Yield-driven mesh scheduler — now LIVE (on by default)
 A staged rework of mesh acquisition toward yield-driven scheduling. The feature flags are now
 **enabled by default in the released flasher builds** (set per board in `platformio.ini`

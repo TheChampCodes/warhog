@@ -74,6 +74,14 @@ struct Config {
   // safe ceiling for SD-over-SPI. Requires reboot.
   uint32_t sdMaxSpiHz = 20000000;
 
+  // When true (default): keep the BLE phone bridge running while SOLO
+  // wardriving, so the Piglet / Biscuit Manager app receives this device's own
+  // scan results the same way it receives a mesh Core's. In mesh Core mode the
+  // bridge always runs (the app is the only way to see mesh traffic); this
+  // switch only governs solo mode, where BLE is otherwise idle. Turn it off to
+  // reclaim the BT controller RAM, or if BLE contends with something else.
+  bool blePhoneSolo = true;
+
   // Network whitelist: up to 10 SSIDs that are scanned normally (still count
   // toward Found totals) but are never written to the CSV log -- e.g. your
   // own home/work network you don't want captured. Exact, case-sensitive

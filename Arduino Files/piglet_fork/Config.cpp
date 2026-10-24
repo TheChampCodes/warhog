@@ -138,6 +138,10 @@ void cfgAssignKV(const String& k, const String& v) {
     String vv = v; vv.toLowerCase();
     cfg.uploadOnNetworkSeen = (vv == "true" || vv == "1");
   }
+  else if (k == "blePhoneSolo") {
+    String vv = v; vv.toLowerCase();
+    cfg.blePhoneSolo = (vv == "true" || vv == "1");
+  }
   else if (k == "sdMaxSpiHz") {
     long hz = v.toInt();
     if (hz >= 400000 && hz <= 40000000) cfg.sdMaxSpiHz = (uint32_t)hz;  // sanity-clamp to a plausible SPI range
@@ -334,6 +338,12 @@ bool saveConfigToSD() {
   f.println("# Mutually exclusive with autoStartAfterUpload -- enabling that always forces");
   f.println("# this off. Default: true.");
   f.print("uploadOnNetworkSeen="); f.println(cfg.uploadOnNetworkSeen ? "true" : "false");
+
+  f.println("");
+  f.println("# Stream this device's own scan results to the phone app over BLE while SOLO");
+  f.println("# wardriving (mesh Core mode always streams). false = BLE stays off in solo");
+  f.println("# mode, freeing the BT controller RAM. Default: true.");
+  f.print("blePhoneSolo="); f.println(cfg.blePhoneSolo ? "true" : "false");
 
   f.println("");
   f.println("# SD-over-SPI clock ceiling in Hz. Boot negotiates the fastest speed up to");

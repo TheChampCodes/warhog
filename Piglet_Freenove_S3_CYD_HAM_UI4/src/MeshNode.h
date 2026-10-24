@@ -62,6 +62,16 @@ struct CoreNodeInfo {
 
 // Core state (read from Display.cpp for page 5 rendering)
 extern bool          meshCoreActive;
+
+// ---- Solo-mode phone bridge (cfg.blePhoneSolo) --------------------------
+// Keeps the same phone-app GATT bridge the Core uses running while the device
+// is SOLO wardriving, so the app sees this unit's own scan results. Call the
+// tick every loop from the non-mesh path; push each scanned AP from the solo
+// scanner. Both are no-ops unless the bridge is up.
+void phoneBridgeSoloTick();
+void phoneBridgeSoloPushAp(const char* bssid, const char* ssid,
+                           const char* auth, int ch, int rssi);
+bool phoneBridgeSoloActive();
 extern uint32_t      coreRecordsRx;
 extern uint8_t       coreNodeCount;
 extern CoreNodeInfo  coreNodes[CORE_MAX_NODES];

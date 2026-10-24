@@ -767,8 +767,24 @@ void loop() {
       coreModeTick();
     }
   } else if (meshNodeActive) {
+    // A node's radio belongs to ESP-NOW; per the BLE ownership rules no other
+    // module may hold the stack while a mesh role is live, so a bridge left up
+    // by a previous solo session comes down here.
+    if (bleBridgeActive()) bleBridgeStop();
     nodeModeTick();
   } else {
+    // Solo wardriving: keep the phone bridge up so the app sees THIS device's
+    // own scan results, not just a Core's mesh traffic. The status payload
+    // already reports core:false / nodes:0 and the local found counters, so
+    // the app can tell solo from Core. Records are pushed from
+    // processScanResults() in Scanner.cpp.
+    if (cfg.blePhoneSolo) {
+      if (!bleBridgeActive()) bleBridgeBegin();
+      bleBridgeTick();
+    } else if (bleBridgeActive()) {
+      bleBridgeStop();
+    }
+
     autoPaused = shouldPauseScanning();
     wifi_mode_t m = WiFi.getMode();
     bool apActive = (m == WIFI_AP || m == WIFI_AP_STA);

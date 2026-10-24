@@ -3,6 +3,7 @@
 #include "Config.h"
 #include "GPS.h"
 #include "SDUtils.h"
+#include "BLEBridge.h"   // solo wardriving mirrors its own records to the phone app
 
 static String authModeToString(wifi_auth_mode_t m) {
   switch (m) {
@@ -78,6 +79,13 @@ static void processScanResults(int n) {
 
     if (is2g) networksFound2G++;
     else      networksFound5G++;
+
+    // Mirror to the phone app (no-op unless the bridge is up — see
+    // cfg.blePhoneSolo). Pushed BEFORE appendWigleRow and independent of its
+    // result: the BLE feed carries every observed record, while the CSV skips
+    // whitelisted SSIDs. Matches the mesh Core path in MeshNode.cpp.
+    bleBridgePushRecord(mac.c_str(), ssid.c_str(), authStr.c_str(), ch, rssi,
+                        lat, lon, altM, accM, firstSeen.c_str());
 
     if (appendWigleRow(mac, ssid, authStr, firstSeen, ch, rssi, lat, lon, altM, accM)) wrote++;
   }

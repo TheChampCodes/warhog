@@ -86,6 +86,12 @@ static void processScanResults(int n) {
 
     // Whitelisted SSIDs still count toward Found totals above, but
     // appendWigleRow() returns false when it skips the CSV write.
+    // Mirror to the phone app over BLE (no-op unless the solo bridge is up —
+    // see cfg.blePhoneSolo). Pushed independently of the appendWigleRow()
+    // result: the app feed carries every observed record, while the CSV skips
+    // whitelisted SSIDs. Matches the mesh Core path in MeshNode.cpp.
+    phoneBridgeSoloPushAp(mac.c_str(), ssid.c_str(), authStr.c_str(), ch, rssi);
+
     if (appendWigleRow(mac, ssid, authStr, firstSeen, ch, rssi, lat, lon, altM, accM)) wrote++;
     biscuitForwardNetwork(mac, ssid, authStr, ch, rssi);
   }

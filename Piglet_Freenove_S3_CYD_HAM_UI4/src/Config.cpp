@@ -115,6 +115,10 @@ void cfgAssignKV(const String& k, const String& v) {
     String vv = v; vv.toLowerCase();
     cfg.biscuitReport = (vv == "true" || vv == "1");
   }
+  else if (k == "blePhoneSolo") {
+    String vv = v; vv.toLowerCase();
+    cfg.blePhoneSolo = (vv == "true" || vv == "1");
+  }
   else if (k == "blePersonality") {
     String vv = v; vv.toLowerCase();
     if (vv == "biscuit" || vv == "wardrivego") cfg.blePersonality = vv;
@@ -240,6 +244,7 @@ bool loadConfigFromSD() {
     cfg.gpsBaud         = doc["gpsBaud"]         | cfg.gpsBaud;
     cfg.scanMode        = doc["scanMode"]        | cfg.scanMode;
     cfg.blePersonality  = doc["blePersonality"]  | cfg.blePersonality;
+    cfg.blePhoneSolo    = doc["blePhoneSolo"]    | cfg.blePhoneSolo;
 
     // Save as new format
     bool ok = saveConfigToSD();
@@ -310,6 +315,7 @@ bool saveConfigToSD() {
 
   f.println("# Core-mode BLE personality: biscuit (Biscuit Manager) or wardrivego (Wardrive Go / WarBLE Go)");
   f.print("blePersonality="); f.println(cfg.blePersonality);
+  f.print("blePhoneSolo="); f.println(cfg.blePhoneSolo ? "true" : "false");
   f.println("");
 
   f.println("# Speed display: kmh or mph");

@@ -27,7 +27,11 @@ void iosEspCompatAttach(NimBLEServer* server);
 // Stand up BLE on our own (Core-mode standalone), advertising as iosESP-XXXX.
 void iosEspCompatBeginStandalone(const char* fallbackName = nullptr);
 // Tear BLE back down (frees the controller for ESP-NOW / WiFi churn).
-void iosEspCompatStopStandalone();
+// freeStack=true (default, mesh Core path) also deinits the BT controller to
+// hand its RAM back to ESP-NOW. Pass false when another BLE consumer may own
+// the stack — in solo mode the wardriving BLE scanner and the Marauder
+// detectors share it, and deinit would pull the radio out from under them.
+void iosEspCompatStopStandalone(bool freeStack = true);
 bool iosEspCompatActive();
 // Detach without touching NimBLE (caller owns teardown; for the bridge tree).
 void iosEspCompatDetach();

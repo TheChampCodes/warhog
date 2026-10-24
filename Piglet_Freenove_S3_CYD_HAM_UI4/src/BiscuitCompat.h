@@ -54,7 +54,11 @@ void biscuitCompatAttach(NimBLEServer* server);
 // Init NimBLE (if needed), create a server, attach the Biscuit service, and
 // start advertising BISCUIT_SERVICE_UUID with the given GAP name.
 void biscuitCompatBeginStandalone(const char* gapName);
-void biscuitCompatStopStandalone();
+// freeStack=true (default, mesh Core path) also deinits the BT controller to
+// hand its RAM back to ESP-NOW. Pass false when another BLE consumer may own
+// the stack — in solo mode the wardriving BLE scanner and the Marauder
+// detectors share it, and deinit would pull the radio out from under them.
+void biscuitCompatStopStandalone(bool freeStack = true);
 bool biscuitCompatActive();
 
 // Shared-server path only: drop references + go inactive WITHOUT any NimBLE

@@ -177,12 +177,12 @@ void biscuitCompatBeginStandalone(const char* gapName) {
                 gapName ? gapName : "Piglet", BISCUIT_MODEL_STRING);
 }
 
-void biscuitCompatStopStandalone() {
+void biscuitCompatStopStandalone(bool freeStack) {
   if (!bcActive) return;
   bcActive = false;
   if (bcStandalone) {
     NimBLEDevice::stopAdvertising();
-    NimBLEDevice::deinit(true);   // free BT controller RAM for ESP-NOW
+    if (freeStack) NimBLEDevice::deinit(true);  // free BT controller RAM for ESP-NOW
     bcStandalone = false;
   }
   respSubscribed = false;

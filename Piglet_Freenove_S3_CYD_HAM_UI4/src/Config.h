@@ -14,6 +14,14 @@ struct Config {
   bool scan24          = true;         // Log 2.4 GHz Wi-Fi networks while wardriving.
   bool scan5           = true;         // Log 5 GHz Wi-Fi networks (only effective on 5 GHz-capable boards, e.g. XIAO C5).
   bool biscuitReport   = false;        // While solo wardriving, also announce + forward found networks over ESP-NOW (ch 6) so a Biscuit Manager sees this device as a biscuit.
+  // When true (default): keep the phone-app BLE bridge up while SOLO
+  // wardriving, so the app receives this device's own scan results the way it
+  // receives a mesh Core's. Which app is served follows blePersonality, the
+  // same as in Core mode. Mesh Core mode always brings the bridge up; this
+  // switch only governs solo mode. Turn it off to keep BLE for the Marauder
+  // tools alone, or to free the BT controller RAM.
+  bool blePhoneSolo = true;
+
   String blePersonality = "biscuit";   // Core-mode BLE app: "biscuit" (Biscuit Manager) or "wardrivego" (RocketGod Wardrive Go / WarBLE Go iosESP bridge).
   String board = "auto"; // auto | s3 | c5 | c6 | c3 | exp  (pins selected at boot; reboot required after change)
   String speedUnits  = "kmh"; // kmh | mph

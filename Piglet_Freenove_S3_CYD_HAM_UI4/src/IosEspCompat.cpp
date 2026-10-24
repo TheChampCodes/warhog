@@ -349,12 +349,12 @@ void iosEspCompatBeginStandalone(const char* fallbackName) {
   Serial.printf("[IOSESP] Standalone up as \"%s\" (chip=%s)\n", ieName, IE_CHIP);
 }
 
-void iosEspCompatStopStandalone() {
+void iosEspCompatStopStandalone(bool freeStack) {
   if (!ieActive) return;
   ieActive = false;
   if (ieStandalone) {
     NimBLEDevice::stopAdvertising();
-    NimBLEDevice::deinit(true);
+    if (freeStack) NimBLEDevice::deinit(true);
     ieStandalone = false;
   }
   ieNotifyOn = false;
