@@ -259,7 +259,18 @@ class IeTxCB : public NimBLECharacteristicCallbacks {
 };
 
 class IeStandaloneServerCB : public NimBLEServerCallbacks {
-  void onConnect(NimBLEServer* s, NimBLEConnInfo& i) override    { Serial.println("[IOSESP] central connected"); NimBLEDevice::startAdvertising(); }
+  void onConnect(NimBLEServer* s, NimBLEConnInfo& i) override {
+    Serial.println("[IOSESP] central connected");
+    // Do NOT re-arm advertising while a central is connected. Wardrive Go
+    // reads an advertisement from a board it believes it is linked to as a
+    // stale link ("advertising again - old link is gone"), so it terminates
+    // the connection — observed as disconnect reason 531, BLE_HS_HCI_ERR(0x13)
+    // "Remote User Terminated Connection" — and immediately reconnects. That
+    // loops every few seconds and the stream never settles. Advertising is
+    // re-armed in onDisconnect, so the board is findable again the moment the
+    // phone really goes away; one central at a time is what the app expects.
+    NimBLEDevice::stopAdvertising();
+  }
   void onDisconnect(NimBLEServer* s, NimBLEConnInfo& i, int r) override {
     Serial.printf("[IOSESP] central disconnected (reason %d)\n", r);
     ieNotifyOn = false; ieStreaming = false;
