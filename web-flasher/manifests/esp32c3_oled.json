@@ -1,5 +1,5 @@
 {
-  "name": "Piglet — PigletNode C3 (0.42\" OLED)",
+  "name": "WarHog — WarHogNode C3 (0.42\" OLED)",
   "version": "__VERSION__",
   "new_install_improv_wait_time": 0,
   "funding_url": "https://github.com/olosnoks/piglet",

@@ -1,6 +1,6 @@
 # BLE & Detectors
 
-Piglet adds a full BLE layer (not present upstream): BLE wardriving plus passive
+WarHog adds a full BLE layer (not present upstream): BLE wardriving plus passive
 detectors and active advertisement floods. Everything shares **one NimBLE stack**, so
 ownership is coordinated carefully.
 

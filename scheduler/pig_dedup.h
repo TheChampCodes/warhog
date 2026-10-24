@@ -1,4 +1,4 @@
-// pig_dedup.h — DROP-IN shared across all Piglet node firmwares.
+// pig_dedup.h — DROP-IN shared across all WarHog node firmwares.
 // Scheduler Phase 1 — worker-side BSSID dedup, flag-gated (default OFF).
 //
 // When PIG_FEAT_DEDUP=1, a rolling TTL cache classifies each scan result and

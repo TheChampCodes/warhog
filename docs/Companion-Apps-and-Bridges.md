@@ -1,6 +1,6 @@
 # Companion Apps & Bridges
 
-Piglet streams live data to phone apps over BLE GATT. The two bridges share the single
+WarHog streams live data to phone apps over BLE GATT. The two bridges share the single
 NimBLE stack with the BLE scanner/detectors (see [BLE & Detectors](BLE-and-Detectors.md) for
 ownership rules). The active bridge is chosen by `cfg.blePersonality`
 (`biscuit` → Biscuit Manager, `wardrivego` → Wardrive Go).
@@ -36,6 +36,6 @@ so BLE wardriving results reach the phone alongside AP sightings.
 
 ## Interop notes
 - Records keep the **212-byte** packet size so Biscuit Pro accepts them.
-- A Piglet node identifies itself to a Biscuit Core as `"Piglet:<version>"` during the
+- A WarHog node identifies itself to a Biscuit Core as `"WarHog:<version>"` during the
   ch-6 admin handshake, which is how a Core categorizes it as a "Biscuit node" while still
-  routing its records through the Piglet log path.
+  routing its records through the WarHog log path.

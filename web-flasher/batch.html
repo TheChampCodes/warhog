@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Piglet Batch Flasher</title>
-<meta name="description" content="Flash several Piglet boards at once over USB from the browser.">
+<title>WarHog Batch Flasher</title>
+<meta name="description" content="Flash several WarHog boards at once over USB from the browser.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f437;</text></svg>">
 <style>
   *,*::before,*::after{box-sizing:border-box}
@@ -92,7 +92,7 @@
   <div class="header">
     <div class="logo">&#x1f437;</div>
     <div>
-      <h1>Piglet Batch Flasher <span class="tag">multi</span></h1>
+      <h1>WarHog Batch Flasher <span class="tag">multi</span></h1>
       <p class="sub">Flash several boards at once over USB · <a href="index.html">single flasher →</a></p>
     </div>
   </div>
@@ -152,7 +152,7 @@
 <script type="module">
 import { ESPLoader, Transport } from "https://unpkg.com/esptool-js@0.7.0/bundle.js";
 
-// Every Piglet board. `url` is where the merged image lives: fork boards are
+// Every WarHog board. `url` is where the merged image lives: fork boards are
 // built into this site's firmware/ by the deploy workflow; "official" C5
 // images come straight from Hamspiced/piglet's latest release. c5:true boards
 // get the unreliable-in-browser caution.
@@ -160,10 +160,10 @@ const REL = "https://github.com/Hamspiced/piglet/releases/latest/download/";
 const BOARDS = [
   { value:"cyd",          label:"Freenove S3 CYD (fork)",            url:"firmware/freenove-s3-cyd-ham-ui4.bin", chip:"ESP32-S3" },
   { value:"guition",      label:"Guition JC8048W550 (fork)",         url:"firmware/guition-jc8048w550.bin",      chip:"ESP32-S3" },
-  { value:"c3",           label:"PigletNode C3 (fork)",              url:"firmware/esp32c3_oled.bin",            chip:"ESP32-C3" },
+  { value:"c3",           label:"WarHogNode C3 (fork)",              url:"firmware/esp32c3_oled.bin",            chip:"ESP32-C3" },
   { value:"waveshare",    label:"Waveshare C6 Mini (fork)",          url:"firmware/waveshare_c6.bin",            chip:"ESP32-C6", c5:true },
-  { value:"xiao_fork",    label:"Piglet Core — XIAO C5 (fork)",      url:"firmware/xiao_c5.bin",                 chip:"ESP32-C5", c5:true },
-  { value:"node_fork",    label:"PigletNode C5 (fork)",              url:"firmware/pigletnode_c5.bin",           chip:"ESP32-C5", c5:true },
+  { value:"xiao_fork",    label:"WarHog Core — XIAO C5 (fork)",      url:"firmware/xiao_c5.bin",                 chip:"ESP32-C5", c5:true },
+  { value:"node_fork",    label:"WarHogNode C5 (fork)",              url:"firmware/warhognode_c5.bin",           chip:"ESP32-C5", c5:true },
   { value:"xiao_off",     label:"Piglet Core — XIAO C5 (official)",  url:REL+"Piglet.ino.merged.bin",            chip:"ESP32-C5", c5:true },
   { value:"node_off",     label:"PigletNode C5 (official)",          url:REL+"PigletNode.ino.merged.bin",        chip:"ESP32-C5", c5:true },
   { value:"tdongle_off",  label:"LilyGo T-Dongle C5 (official)",     url:REL+"TDongleC5_Piglet.ino.merged.bin",  chip:"ESP32-C5", c5:true },
@@ -171,7 +171,7 @@ const BOARDS = [
 
 boot(BOARDS);
 
-// ---- generic batch-flasher engine (identical across every Piglet flasher) ----
+// ---- generic batch-flasher engine (identical across every WarHog flasher) ----
 function boot(BOARDS){
   if(!("serial" in navigator)){
     document.getElementById("unsupportedCard").style.display="";

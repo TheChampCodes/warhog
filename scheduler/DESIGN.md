@@ -1,6 +1,6 @@
 # Yield-Driven Acquisition — Technical Design
 
-Implementation-ready design for moving a Piglet-class ESP-NOW wardriving mesh from
+Implementation-ready design for moving a WarHog-class ESP-NOW wardriving mesh from
 static even channel-slicing to yield-driven adaptive acquisition. Status markers:
 **[D]** documented in this repo's source · **[I]** inferred from code · **[V]** needs verification.
 
@@ -31,11 +31,11 @@ you measure rather than assume (§13).
 
 | Baseline fact | Status | Evidence |
 |---|---|---|
-| ESP-NOW mesh on channel 6 | **[D]** | `JCMK_ESPNOW_CH`; README §5; `PigletNode.ino` |
+| ESP-NOW mesh on channel 6 | **[D]** | `JCMK_ESPNOW_CH`; README §5; `WarHogNode.ino` |
 | Coordinator assigns channel slices; worker dwells & scans | **[D]** | `coreReassignChannels()` |
 | Assignment is a static even split of the 40-channel table | **[D]** | `perNode = JCMK_NUM_CHANNELS / count` (`MeshNode.cpp:644`) |
 | Fixed 80 ms/channel dwell | **[D]** | `NODE_SCAN_DWELL_MS = 80` |
-| Node cycles range, returns to ch 6, sends results + heartbeat | **[D]** | `PigletNode/README.md`; `nodeModeTick` |
+| Node cycles range, returns to ch 6, sends results + heartbeat | **[D]** | `WarHogNode/README.md`; `nodeModeTick` |
 | Active scan by default | **[D]** | `WiFi.scanNetworks(async,hidden,passive=false,80,ch)` (`:825`) |
 | Core timeout → re-search after 30 s | **[D]** | `JCMK_CORE_TIMEOUT_MS = 30000` |
 | Records travel as text lines in 212 B packets | **[D]** | `jcmk_text_msg_t`; "Biscuit drops < 212 B" |
@@ -98,7 +98,7 @@ records vs. 1–2 text records today) and the 212 B batch envelope are defined i
   range) — this is what unlocks non-contiguous yield-packed assignment. Legacy
   ADMIN keeps the contiguous range for old nodes.
 
-Negotiate binary batches via the existing Piglet marker handshake; non-Piglet peers
+Negotiate binary batches via the existing WarHog marker handshake; non-WarHog peers
 keep getting legacy TEXT.
 
 ---
@@ -235,7 +235,7 @@ Queue overload → §11 order. SD spike → isolated to tStore. Packet loss → 
 marks yield partial (reuse `jcmkSendFailCount` send-status cb). Worker reboot →
 `assign_ver` mismatch forces resync; reclaim at 15 s. Active disabled → all passive;
 DFS always passive. Marauder/BLE co-resident → `radioMutex` time-share.
-Mixed mesh → legacy TEXT + contiguous ADMIN for non-Piglet peers.
+Mixed mesh → legacy TEXT + contiguous ADMIN for non-WarHog peers.
 
 ---
 
@@ -266,7 +266,7 @@ uniq/min > 5% or introduces an RX deadline miss fails and reverts.
 | Phase | Ships | Gate to next |
 |---|---|---|
 | 0 Instrumentation | metrics line + replay harness, no behavior change | baselines recorded |
-| 1 Worker dedup | `bssid_cache.h` + FULL/DELTA + binary batch (Piglet↔Piglet) | bytes/uniq −40%, uniq/min ≥ parity |
+| 1 Worker dedup | `bssid_cache.h` + FULL/DELTA + binary batch (WarHog↔WarHog) | bytes/uniq −40%, uniq/min ≥ parity |
 | 2 Adaptive dwell | fast pass + yield-weighted passive revisit | uniq/min ≥ parity, DFS passive verified |
 | 3 Dynamic assign | `sched_assign()` + `PIG_MSG_ADMIN_EXT` + hysteresis | +≥15% multi-node, no thrash, no starvation |
 | 4 Core isolation | task/core split + bounded queues + backpressure | 0 RX deadline misses @12 nodes |

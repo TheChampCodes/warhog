@@ -1,9 +1,9 @@
-# Piglet — Multi-Board Wardriving & Wireless Research Suite
+# WarHog — Multi-Board Wardriving & Wireless Research Suite
 
 [![Web Flasher](https://img.shields.io/badge/Web_Flasher-Launch_Installer-2dd4bf?style=flat-square)](web-flasher/index.html)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC_BY--NC--SA_4.0-blue.svg?style=flat-square)](LICENSE)
 
-An extended, multi-board distribution of **Piglet**, an open-source ESP32 wardriving and wireless research platform. Piglet scans Wi-Fi (2.4 GHz and 5 GHz) and Bluetooth Low Energy (BLE) networks, attaches high-accuracy GPS coordinates, logs data in WiGLE-compliant CSV and raw PCAP formats to MicroSD, coordinates worker nodes across an ESP-NOW mesh, and provides touch and web interfaces for field operations.
+An extended, multi-board distribution of **WarHog**, an open-source ESP32 wardriving and wireless research platform. WarHog scans Wi-Fi (2.4 GHz and 5 GHz) and Bluetooth Low Energy (BLE) networks, attaches high-accuracy GPS coordinates, logs data in WiGLE-compliant CSV and raw PCAP formats to MicroSD, coordinates worker nodes across an ESP-NOW mesh, and provides touch and web interfaces for field operations.
 
 This repository unifies official upstream Piglet hardware with dedicated ports for Cheap Yellow Displays (CYD), RGB IPS touch panels, micro OLED worker nodes, USB dongles, and a zero-install browser flasher.
 
@@ -11,11 +11,11 @@ This repository unifies official upstream Piglet hardware with dedicated ports f
 
 ## 1. Upstream Comparison: What is Different in This Fork?
 
-This repository builds upon upstream [Hamspiced/piglet](https://github.com/Hamspiced/piglet). The shared firmware (Piglet Core, PigletNode, T-Dongle C5) is kept **in sync with upstream — currently v2.7** (Wardrift upload, SSID whitelist, home-network auto-return, GPIO0 boot-settle fix). The table below is the fork's additions *on top of* that upstream baseline:
+This repository builds upon upstream [Hamspiced/piglet](https://github.com/Hamspiced/piglet). The shared firmware (WarHog Core, WarHogNode, T-Dongle C5) is kept **in sync with upstream — currently v2.7** (Wardrift upload, SSID whitelist, home-network auto-return, GPIO0 boot-settle fix). The table below is the fork's additions *on top of* that upstream baseline:
 
 | Feature / Subsystem | Upstream (`Hamspiced/piglet`) | This Fork (`olosnoks/piglet`) |
 |---|---|---|
-| **Supported Hardware** | Seeed XIAO (S3, C5, C6, C3), T-Dongle C5, Waveshare C6 Mini | **+ Freenove S3 CYD (2.4″ Touch)**<br>**+ Guition JC8048W550 (5.0″ 800×480 RGB IPS)**<br>**+ PigletNode C3 (0.42″ OLED Micro-Node)** |
+| **Supported Hardware** | Seeed XIAO (S3, C5, C6, C3), T-Dongle C5, Waveshare C6 Mini | **+ Freenove S3 CYD (2.4″ Touch)**<br>**+ Guition JC8048W550 (5.0″ 800×480 RGB IPS)**<br>**+ WarHogNode C3 (0.42″ OLED Micro-Node)** |
 | **Offensive & Security Tools** | None (pure wardriving & discovery) | **ESP32 Marauder Port:** Raw 802.11 frame injection, beacon spam, deauth attacks, deauth detection, PMKID capture with Hashcat 22000 export, WPS vulnerability checks, and raw PCAP logging to SD |
 | **Bluetooth Low Energy (BLE)** | Not supported | **BLE Wardriving & Sniffers:** AirTag/FindMy tracking, Flipper Zero detection, Pwnagotchi detection, and multi-platform BLE advertisement floods (Apple, SwiftPair, Samsung, Fast Pair) |
 | **Mesh Ecosystem Support** | JCMK Wardriver ESP-NOW protocol + Biscuit Pro mesh interop (incl. plain-reply, v2.63) | Same mesh base **+ Biscuit Manager BLE/GATT layer** (`BiscuitCompat.cpp`) and **Core BLE Bridge** (`BLEBridge.cpp`) for forwarding BLE records to companion apps |
@@ -32,29 +32,29 @@ Each board target has a dedicated firmware project and full documentation:
 
 | Hardware Project | SoC & Arch | Display & Touch | Wi-Fi Bands | GPS / SD | Primary Mesh Role | Documentation |
 |---|---|---|---|---|---|---|
-| **[Freenove S3 CYD](Piglet_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 (Xtensa Dual-Core) | 2.4″ 240×320 SPI TFT<br>Capacitive Touch | 2.4 GHz | UART GPS<br>4-bit SDIO | Standalone / Coordinator / Security Suite | [CYD Guide](Piglet_Freenove_S3_CYD_HAM_UI4/README.md) |
-| **[Guition JC8048W550](Piglet_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 N16R8 | 5.0″ 800×480 RGB IPS<br>Goodix GT911 Touch | 2.4 GHz | UART GPS<br>SPI SD | Standalone / Coordinator / Dashboard | [Guition Guide](Piglet_Freenove_S3_CYD_HAM_UI4/README.md) |
-| **[PigletNode C3](c3_node/)** | ESP32-C3 (RISC-V Single-Core) | 0.42″ 72×40 SSD1306 OLED<br>Physical Button | 2.4 GHz | Headless<br>(No GPS/SD) | Worker Node (Autonomous ESP-NOW) | [C3 Node Guide](c3_node/README.md) |
-| **[Piglet Core (XIAO C5)](Arduino%20Files/piglet_fork/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ SSD1306 OLED<br>Physical Button | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART GPS<br>SPI SD | Central Coordinator / Standalone | [Core Guide](Arduino%20Files/piglet_fork/README.md) |
-| **[LilyGo T-Dongle C5](TDongleC5_Piglet/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ ST7735 Color TFT<br>APA102 RGB LED | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART Qwiic<br>SPI SD | Portable Dongle / Node / Core | [T-Dongle Guide](TDongleC5_Piglet/README.md) |
-| **[Waveshare C6 Mini](waveshareDisplayMiniPiglet/)** | ESP32-C6 (RISC-V Wi-Fi 6) | 1.47″ 172×320 ST7789 TFT<br>Physical Button | 2.4 GHz Wi-Fi 6 | UART Header<br>SPI SD | Standalone Wardriver | [Waveshare Guide](waveshareDisplayMiniPiglet/README.md) |
-| **[PigletNode C5](PigletNode/)** | ESP32-C5 (RISC-V Dual-Band) | None (LED Status Only) | 2.4 GHz +<br>5 GHz Wi-Fi 6 | Headless<br>(No GPS/SD) | Worker Node (Dual-Band Mesh) | [C5 Node Guide](PigletNode/README.md) |
+| **[Freenove S3 CYD](WarHog_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 (Xtensa Dual-Core) | 2.4″ 240×320 SPI TFT<br>Capacitive Touch | 2.4 GHz | UART GPS<br>4-bit SDIO | Standalone / Coordinator / Security Suite | [CYD Guide](WarHog_Freenove_S3_CYD_HAM_UI4/README.md) |
+| **[Guition JC8048W550](WarHog_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 N16R8 | 5.0″ 800×480 RGB IPS<br>Goodix GT911 Touch | 2.4 GHz | UART GPS<br>SPI SD | Standalone / Coordinator / Dashboard | [Guition Guide](WarHog_Freenove_S3_CYD_HAM_UI4/README.md) |
+| **[WarHogNode C3](c3_node/)** | ESP32-C3 (RISC-V Single-Core) | 0.42″ 72×40 SSD1306 OLED<br>Physical Button | 2.4 GHz | Headless<br>(No GPS/SD) | Worker Node (Autonomous ESP-NOW) | [C3 Node Guide](c3_node/README.md) |
+| **[WarHog Core (XIAO C5)](Arduino%20Files/warhog_fork/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ SSD1306 OLED<br>Physical Button | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART GPS<br>SPI SD | Central Coordinator / Standalone | [Core Guide](Arduino%20Files/warhog_fork/README.md) |
+| **[LilyGo T-Dongle C5](TDongleC5_WarHog/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ ST7735 Color TFT<br>APA102 RGB LED | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART Qwiic<br>SPI SD | Portable Dongle / Node / Core | [T-Dongle Guide](TDongleC5_WarHog/README.md) |
+| **[Waveshare C6 Mini](waveshareDisplayMiniWarHog/)** | ESP32-C6 (RISC-V Wi-Fi 6) | 1.47″ 172×320 ST7789 TFT<br>Physical Button | 2.4 GHz Wi-Fi 6 | UART Header<br>SPI SD | Standalone Wardriver | [Waveshare Guide](waveshareDisplayMiniWarHog/README.md) |
+| **[WarHogNode C5](WarHogNode/)** | ESP32-C5 (RISC-V Dual-Band) | None (LED Status Only) | 2.4 GHz +<br>5 GHz Wi-Fi 6 | Headless<br>(No GPS/SD) | Worker Node (Dual-Band Mesh) | [C5 Node Guide](WarHogNode/README.md) |
 
 ---
 
 ## 3. Directory Map
 
 ```text
-piglet/
+warhog/
 ├── Arduino Files/
-│   └── piglet_fork/            # XIAO C5 Core firmware (BLE bridge, BiscuitCompat, PigWorld)
-├── c3_node/                    # ESP32-C3 0.42″ OLED PigletNode with flocking graphics
-│   ├── core-patch/             # Patch adding BLE WiGLE logging to Piglet Core
+│   └── warhog_fork/            # XIAO C5 Core firmware (BLE bridge, BiscuitCompat, PigWorld)
+├── c3_node/                    # ESP32-C3 0.42″ OLED WarHogNode with flocking graphics
+│   ├── core-patch/             # Patch adding BLE WiGLE logging to WarHog Core
 │   └── docs/                   # Sprite pipelines and visual assets
-├── Piglet_Freenove_S3_CYD_HAM_UI4/ # CYD 2.4″ & Guition 5″ touch suite (Marauder/PCAP/PMKID/BLE)
-├── PigletNode/                 # Headless dual-band XIAO C5 mesh worker node
-├── TDongleC5_Piglet/           # LilyGo T-Dongle C5 USB-A standalone build
-├── waveshareDisplayMiniPiglet/ # Waveshare ESP32-C6 1.47″ vertical color TFT build
+├── WarHog_Freenove_S3_CYD_HAM_UI4/ # CYD 2.4″ & Guition 5″ touch suite (Marauder/PCAP/PMKID/BLE)
+├── WarHogNode/                 # Headless dual-band XIAO C5 mesh worker node
+├── TDongleC5_WarHog/           # LilyGo T-Dongle C5 USB-A standalone build
+├── waveshareDisplayMiniWarHog/ # Waveshare ESP32-C6 1.47″ vertical color TFT build
 ├── web-flasher/                # Browser-based WebSerial firmware flasher
 │   └── manifests/              # ESP Web Tools JSON manifests
 ├── Case Files/                 # 3D printable enclosures (STL / STEP)
@@ -75,15 +75,15 @@ Each firmware folder contains a standalone `platformio.ini` pinned to the `pioar
 
 ```bash
 # Example: Flashing the Freenove S3 CYD
-cd Piglet_Freenove_S3_CYD_HAM_UI4
+cd WarHog_Freenove_S3_CYD_HAM_UI4
 pio run -e freenove-s3-cyd-ham-ui4 -t upload
 
-# Example: Flashing PigletNode C3
+# Example: Flashing WarHogNode C3
 cd c3_node
 pio run -t upload
 
 # Example: Flashing XIAO C5 Core
-cd "Arduino Files/piglet_fork"
+cd "Arduino Files/warhog_fork"
 pio run -t upload
 ```
 
@@ -93,7 +93,7 @@ pio run -t upload
 
 ## 5. Wireless Mesh Architecture
 
-Piglet uses an ESP-NOW mesh protocol operating on channel 6. The Core no longer
+WarHog uses an ESP-NOW mesh protocol operating on channel 6. The Core no longer
 hands workers a flat, even slice of the channel list: with the **yield-driven
 scheduler** live (see [`scheduler/`](scheduler/)), it tracks per-channel yield
 from the records it receives and assigns each node an explicit, yield-ordered
@@ -103,7 +103,7 @@ Every feature is flag-gated (`PIG_FEAT_*`) and falls back to the legacy even
 split when disabled.
 ```
            ┌──────────────────────────────────────────────┐
-           │                 Piglet Core                  │
+           │                 WarHog Core                  │
            │  (XIAO C5, Freenove S3 CYD, or Biscuit Pro)   │
            │         - GPS Timestamping & Fix             │
            │         - WiGLE CSV & PCAP Logging           │
@@ -114,7 +114,7 @@ split when disabled.
      Channel Slice │ & Heartbeats                 │ Channel Slice
                    │                              │
     ┌──────────────┴──────────────┐ ┌─────────────┴──────────────┐
-    │        PigletNode C3        │ │        PigletNode C5        │
+    │        WarHogNode C3        │ │        WarHogNode C5        │
     │  - 2.4 GHz Scan Dwell       │ │  - Dual-Band 2.4 + 5 GHz   │
     │  - 0.42" PigWorld Display   │ │  - 40 JCMK Channels        │
     │  - Multi-Node Flocking      │ │  - Headless Ultra-Low Power│

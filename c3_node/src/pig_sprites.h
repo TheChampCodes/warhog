@@ -1,4 +1,4 @@
-// Generated from the Piglet Sprite Lab. Do not edit by hand.
+// Generated from the WarHog Sprite Lab. Do not edit by hand.
 // Each row is one uint32_t, MSB = leftmost pixel. Sprites face right.
 #pragma once
 #include <stdint.h>

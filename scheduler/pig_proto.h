@@ -51,7 +51,7 @@ static_assert(sizeof(pig_batch_t) == 212, "pig_batch_t must be 212B for Biscuit 
 // Extended admin (PIG_MSG_ADMIN_EXT): hands a node an EXPLICIT channel list (not a
 // contiguous start/end range), which is what unlocks yield-packed, NON-contiguous
 // assignment (DESIGN §4). Also carries the Phase-2 dwell knobs + scan policy and the
-// transmit-slot scheduling fields. Piglet<->Piglet only (legacy Cores never send 0x23,
+// transmit-slot scheduling fields. WarHog<->WarHog only (legacy Cores never send 0x23,
 // legacy nodes ignore it). Send offsetof(pig_admin_ext_t, channels)+n bytes on the wire.
 #define PIG_ADMIN_EXT_MAXCH 40
 enum PigScanPolicyBits : uint8_t {
@@ -64,7 +64,7 @@ typedef struct __attribute__((packed)) {
   uint8_t  type;            // PIG_MSG_ADMIN_EXT (0x23)
   uint8_t  assign_ver;      // assignment version (node resyncs on change)
   uint8_t  slot_index;      // this node's deterministic transmit slot
-  uint8_t  slot_count;      // total Piglet nodes in the slot schedule
+  uint8_t  slot_count;      // total WarHog nodes in the slot schedule
   uint8_t  fast_dwell;      // ms, Phase-2 fast active pass (0 = node default)
   uint8_t  base_revisit;    // ms, Phase-2 passive revisit floor (0 = node default)
   uint8_t  scan_policy;     // PigScanPolicyBits

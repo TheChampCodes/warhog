@@ -1,6 +1,6 @@
-# PigletNode C3
+# WarHogNode C3
 
-A standalone ESP-NOW scanning node for the **Piglet** Wi-Fi mesh, ported to the tiny **ESP32-C3 0.42" OLED** board. It scans 2.4 GHz Wi-Fi on the channels its Core assigns and reports every network it hears back to the Core. The 72×40 screen shows a small world: a pixel-art pig trots through it, digs up truffles, hops when it finds a new network, and meets the pigs of other nodes nearby.
+A standalone ESP-NOW scanning node for the **WarHog** Wi-Fi mesh, ported to the tiny **ESP32-C3 0.42" OLED** board. It scans 2.4 GHz Wi-Fi on the channels its Core assigns and reports every network it hears back to the Core. The 72×40 screen shows a small world: a pixel-art pig trots through it, digs up truffles, hops when it finds a new network, and meets the pigs of other nodes nearby.
 
 <p align="center">
   <img src="docs/img/anim_trot.gif" alt="The pig trotting over rolling ground under drifting clouds">
@@ -9,7 +9,7 @@ A standalone ESP-NOW scanning node for the **Piglet** Wi-Fi mesh, ported to the 
 
 ## One pig per node, up to six
 
-Every Piglet node in range joins the scene with its own pig, so you can count the cluster at a glance. The more pigs there are, the smaller everyone gets. Each node's pig also has its own spot pattern.
+Every WarHog node in range joins the scene with its own pig, so you can count the cluster at a glance. The more pigs there are, the smaller everyone gets. Each node's pig also has its own spot pattern.
 
 | 1 node | 2 nodes | 3 nodes |
 |:---:|:---:|:---:|
@@ -102,7 +102,7 @@ pio device monitor                        # serial output, 115200 baud
 
 ## 4. How the node works: radio and protocol
 
-The node speaks the **JCMK protocol** used by Piglet Cores (and by ESP32 Marauder in its core role). All messages are ESP-NOW broadcasts on **channel 6**, starting with the four magic bytes `ENOW` and a type byte:
+The node speaks the **JCMK protocol** used by WarHog Cores (and by ESP32 Marauder in its core role). All messages are ESP-NOW broadcasts on **channel 6**, starting with the four magic bytes `ENOW` and a type byte:
 
 | Type | Name | Direction | Meaning |
 |---|---|---|---|
@@ -117,7 +117,7 @@ Text and heartbeat messages use a fixed 212-byte `jcmk_text_msg_t` (magic, type,
 
 ### Startup (`setup()`)
 
-1. Serial starts, the LED and button pins are set up, and the screen shows "PigletNode / C3 v2.58-c3 / Booting...".
+1. Serial starts, the LED and button pins are set up, and the screen shows "WarHogNode / C3 v2.58-c3 / Booting...".
 2. Wi-Fi is fully switched off and then on again in station mode, with auto-reconnect and saving to flash disabled. This gives a clean radio state.
 3. ESP-NOW starts. If that fails, the screen shows the error and the LED flickers forever; power-cycle to retry.
 4. The radio is set to channel 6 and read back to confirm; if it didn't stick, it tries once more. The broadcast address is added as an ESP-NOW peer, and the node reads its own hardware address (used to choose the party leader).
@@ -175,7 +175,7 @@ Nodes find each other through the heartbeats they already send. The first 11 byt
 
 | Bytes | Content |
 |---|---|
-| 0–3 | `"PIG1"` (marks the sender as a Piglet C3 node) |
+| 0–3 | `"PIG1"` (marks the sender as a WarHog C3 node) |
 | 4–7 | The sender's unique-network count (`uint32`, little-endian) |
 | 8–9 | Party countdown in 100 ms steps (`uint16`, 0 = no party announced) |
 | 10 | Party number (`uint8`) |
@@ -568,7 +568,7 @@ Four panels rotate every **4 s**. The lit title bar has four dots; the tall one 
 
 | Panel | Line by line |
 |---|---|
-| **PIGLET 57C4** | Firmware version · uptime · Core name and scanned channel range (or `core: searching`) · time since linking (or how often it's asking for a Core) · free memory |
+| **WARHOG 57C4** | Firmware version · uptime · Core name and scanned channel range (or `core: searching`) · time since linking (or how often it's asking for a Core) · free memory |
 | **NETWORKS** | Unique networks (plus a per-hour rate after 5 minutes linked) · total seen · total sent to the Core · unique networks that are open / WEP / enterprise (EAP) · WPA/WPA2 / WPA3 |
 | **FLOCK n PIGS** | Up to 4 nearby friends, each as `name signal time-since-heard n<networks>` · number of parties. A `*` in the title means this node is the party leader. |
 | **AIR** | Current channel (scanning, or on channel 6 for the Core) · busiest channel and its network count · strongest recent network: signal and channel, then its name · time since the last new network |
@@ -608,7 +608,7 @@ python build_lab.py            # rebuilds the Sprite Lab page with the new art
 | `render.py` | Quick preview: renders a text file of frames to a zoomed PNG. |
 | `render_docs.py` | Makes the images in this README. |
 
-**The Sprite Lab** ([tools/sprite-lab/piglet-sprite-lab.html](tools/sprite-lab/piglet-sprite-lab.html)) is a single web page. Open it in a browser to see everything running on a simulated 72×40 OLED at 20 fps, next to a real-size preview. You can switch mode (searching, linked, idle), trigger network finds and parties, and set the cluster size from 1 to 6 nodes. It also shows the original pig and two earlier design options for comparison. Its scene code (`WorldPig`) follows the firmware's `oledTick()` closely. The preview uses shorter timers so you see digs, visits and butterflies sooner.
+**The Sprite Lab** ([tools/sprite-lab/warhog-sprite-lab.html](tools/sprite-lab/warhog-sprite-lab.html)) is a single web page. Open it in a browser to see everything running on a simulated 72×40 OLED at 20 fps, next to a real-size preview. You can switch mode (searching, linked, idle), trigger network finds and parties, and set the cluster size from 1 to 6 nodes. It also shows the original pig and two earlier design options for comparison. Its scene code (`WorldPig`) follows the firmware's `oledTick()` closely. The preview uses shorter timers so you see digs, visits and butterflies sooner.
 
 To regenerate the README images:
 
@@ -669,6 +669,6 @@ The file in order:
 
 ## 16. Credits and license
 
-A port of [PigletNode](https://github.com/Hamspiced/piglet/tree/main/PigletNode) by Hamspiced, from the XIAO ESP32-C5 to the ESP32-C3 0.42" OLED board, with a new display engine, pixel art, animations and node-to-node flock features. Works with Piglet (XIAO ESP32-S3/C5/C6) and Piglet T-Dongle C5 in Core mode, and with [ESP32 Marauder](https://github.com/justcallmekoko/ESP32Marauder) in its core role.
+A port of [PigletNode](https://github.com/Hamspiced/piglet/tree/main/PigletNode) by Hamspiced, from the XIAO ESP32-C5 to the ESP32-C3 0.42" OLED board, with a new display engine, pixel art, animations and node-to-node flock features. Works with WarHog (XIAO ESP32-S3/C5/C6) and WarHog T-Dongle C5 in Core mode, and with [ESP32 Marauder](https://github.com/justcallmekoko/ESP32Marauder) in its core role.
 
 Licensed under **CC BY-NC-SA 4.0**, the same as upstream.

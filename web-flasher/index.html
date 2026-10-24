@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Piglet Wardriver — Web Flasher</title>
-<meta name="description" content="Flash Piglet wardriving firmware to your ESP32 board straight from the browser.">
+<title>WarHog Wardriver — Web Flasher</title>
+<meta name="description" content="Flash WarHog wardriving firmware to your ESP32 board straight from the browser.">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f437;</text></svg>">
 <script type="module" src="https://unpkg.com/esp-web-tools@10.4.0/dist/web/install-button.js?module"></script>
 <style>
@@ -144,7 +144,7 @@
   <div class="header">
     <div class="logo">&#x1f437;</div>
     <div>
-      <h1>Piglet Wardriver <span class="fork">skon's fork</span></h1>
+      <h1>WarHog Wardriver <span class="fork">skon's fork</span></h1>
       <p class="sub">Web Flasher &mdash; unofficial fork &middot; flash firmware over USB, no IDE</p>
     </div>
   </div>
@@ -208,9 +208,9 @@
         </details>
       </div>
 
-      <!-- PigletNode C3 -->
+      <!-- WarHogNode C3 -->
       <div class="board">
-        <h2>PigletNode C3</h2>
+        <h2>WarHogNode C3</h2>
         <div class="chips"><span class="chip a">ESP32-C3</span><span class="chip">4 MB</span><span class="chip">0.42&Prime; OLED</span></div>
         <div class="screen" data-screen="c3"></div>
         <p class="desc">Minimal mesh node &mdash; boots straight into ESP-Now node mode. No GPS/SD needed.</p>
@@ -234,10 +234,10 @@
            data-manifest-ham="manifests/xiao_c5-ham.json"
            data-bin-fork="firmware/xiao_c5.bin"
            data-bin-ham="https://github.com/Hamspiced/piglet/releases/latest/download/Piglet.ino.merged.bin">
-        <h2>Piglet Core &mdash; XIAO C5</h2>
+        <h2>WarHog Core &mdash; XIAO C5</h2>
         <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">GPS</span><span class="chip">dual-band</span></div>
-        <div class="screen" data-screen="piglet"></div>
-        <p class="desc">Piglet Core &mdash; GPS, SD, WiGLE logging, mesh. Dual-band 5 GHz. Browser flashing is unreliable on the C5 &mdash; see note.</p>
+        <div class="screen" data-screen="warhog"></div>
+        <p class="desc">WarHog Core &mdash; GPS, SD, WiGLE logging, mesh. Dual-band 5 GHz. Browser flashing is unreliable on the C5 &mdash; see note.</p>
         <div class="fwrow">
           <span class="fwlbl">Firmware</span>
           <div class="fwtoggle" role="group" aria-label="Firmware source">
@@ -265,13 +265,13 @@ esptool --chip esp32c5 \
         </details>
       </div>
 
-      <!-- PigletNode C5 -->
+      <!-- WarHogNode C5 -->
       <div class="board" data-fw-dual
-           data-manifest-fork="manifests/pigletnode_c5.json"
+           data-manifest-fork="manifests/warhognode_c5.json"
            data-manifest-ham="manifests/pigletnode_c5-ham.json"
-           data-bin-fork="firmware/pigletnode_c5.bin"
+           data-bin-fork="firmware/warhognode_c5.bin"
            data-bin-ham="https://github.com/Hamspiced/piglet/releases/latest/download/PigletNode.ino.merged.bin">
-        <h2>PigletNode C5</h2>
+        <h2>WarHogNode C5</h2>
         <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">mesh node</span></div>
         <p class="desc">XIAO C5 mesh node &mdash; boots straight into ESP-Now node mode. Dual-band, no display.</p>
         <div class="fwrow">
@@ -282,20 +282,20 @@ esptool --chip esp32c5 \
           </div>
         </div>
         <p class="fwnote" data-fwnote></p>
-        <esp-web-install-button manifest="manifests/pigletnode_c5.json">
+        <esp-web-install-button manifest="manifests/warhognode_c5.json">
           <button class="flash" slot="activate">&#9654; Install (may fail)</button>
           <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
         </esp-web-install-button>
         <div class="alt">
-          <a href="firmware/pigletnode_c5.bin" download data-dl>Download .bin</a>
-          <a href="manifests/pigletnode_c5.json" data-mf>manifest</a>
+          <a href="firmware/warhognode_c5.bin" download data-dl>Download .bin</a>
+          <a href="manifests/warhognode_c5.json" data-mf>manifest</a>
         </div>
         <details open><summary>C5 note &mdash; use --no-stub if the browser fails</summary>
 <pre><span class="c"># C5 USB-Serial/JTAG drops on stub;</span>
 <span class="c"># flash from a terminal instead:</span>
 esptool --chip esp32c5 \
   --no-stub write-flash \
-  0x0 pigletnode_c5.bin</pre>
+  0x0 warhognode_c5.bin</pre>
         </details>
       </div>
 

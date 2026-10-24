@@ -13,7 +13,7 @@ own was invisible to the app even though every piece of plumbing was already the
 Core-capable firmwares now keep the same bridge running while **solo wardriving** and feed it
 from the local scanner, behind a new `blePhoneSolo` setting (**default on**).
 
-- **XIAO C5** (`piglet_fork`) — serves the Piglet app's `BLEBridge` GATT plus the attached
+- **XIAO C5** (`warhog_fork`) — serves the WarHog app's `BLEBridge` GATT plus the attached
   Biscuit Manager service. Records are mirrored from `processScanResults()`; the status payload
   already reported `core:false`, `nodes:0` and the local 2.4/5 GHz found counters, so the app can
   tell a solo unit from a Core with no app change. Toggle lives in the web UI
@@ -55,10 +55,10 @@ full design in `scheduler/DESIGN.md`, Phase-4 plan in `scheduler/PHASE4_PLAN.md`
   passes for compliance, and channels the radio cannot scan (5 GHz on 2.4-only silicon) are
   dropped when the sweep is built instead of burning a scan slot. With the flag off the sweep is
   fast-only at the legacy fixed active dwell, i.e. exactly the old behavior.
-- **Phase 3 — dynamic yield assignment** (`PIG_FEAT_DYNAMIC_ASSIGN`, Core: piglet_fork + CYD):
+- **Phase 3 — dynamic yield assignment** (`PIG_FEAT_DYNAMIC_ASSIGN`, Core: warhog_fork + CYD):
   tracks per-channel yield and hands each node an explicit yield-ordered channel list
   (`PIG_MSG_ADMIN_EXT`); stays band-aware so 2.4 GHz-only nodes keep 1/6/11.
-- **Phase 4 Step 1 — core-isolated SD logging** (`PIG_FEAT_CORE_ISO`, piglet_fork + CYD/W550):
+- **Phase 4 Step 1 — core-isolated SD logging** (`PIG_FEAT_CORE_ISO`, warhog_fork + CYD/W550):
   the Core's per-record WiGLE SD write moves to a FreeRTOS task (core 0 on the dual-core S3) so
   the ESP-NOW RX drain keeps running; on the CYD the SD card and TFT share one SPI bus, so a
   recursive `gSpiBusMutex` (`SpiBusLock.h`) serializes the display flush against the SD task.
@@ -92,12 +92,12 @@ On-device cluster management for the **Freenove S3 CYD (HAM UI4)** firmware, in 
 Brought the shared firmware up from the v2.62 fork point to upstream **v2.7**, keeping all
 fork additions (BLE bridge, PigWorld, herd-count display, PlatformIO builds):
 
-- **Piglet Core** (`Arduino Files/piglet_fork`): Wardrift upload (3rd upload service),
+- **WarHog Core** (`Arduino Files/warhog_fork`): Wardrift upload (3rd upload service),
   SSID whitelist (`ssidWhitelist1–10`), home-network auto-return + `uploadOnNetworkSeen`,
   per-file WDGoWars upload fix, upload size logging, and the GPIO0 boot-settle guard.
   Biscuit handling keeps the fork's BLE-bridge mirror and herd-count branch **and** adds
   upstream's Biscuit plain-reply (encrypt=0) handshake.
-- **PigletNode C5** and **T-Dongle C5**: synced to upstream v2.7 (clean drop-in).
+- **WarHogNode C5** and **T-Dongle C5**: synced to upstream v2.7 (clean drop-in).
 - `wardriver.cfg` sample gained `wardriftApiKey`, `ssidWhitelist1–10`, `uploadOnNetworkSeen`,
   and `sdMaxSpiHz`.
 - *Waveshare C6*: no change (upstream had none since v2.62).
@@ -105,7 +105,7 @@ fork additions (BLE bridge, PigWorld, herd-count display, PlatformIO builds):
 ### Web flasher
 - Re-added the **LilyGo T-Dongle C5** card (official build — flashes upstream's prebuilt
   `TDongleC5_Piglet.ino.merged.bin`, latest).
-- The Piglet Core (XIAO C5) and PigletNode C5 cards carry a **skon's fork / official**
+- The WarHog Core (XIAO C5) and WarHogNode C5 cards carry a **skon's fork / official**
   toggle that tracks ham's latest GitHub release; the fork side is now synced to v2.7.
 
 ### In progress

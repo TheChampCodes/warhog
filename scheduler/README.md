@@ -1,6 +1,6 @@
 # scheduler/ — yield-driven acquisition modules
 
-Standalone, host-testable building blocks that move the Piglet mesh from static
+Standalone, host-testable building blocks that move the WarHog mesh from static
 even channel-slicing to **yield-driven adaptive scanning**. The modules are kept
 isolated (no Arduino/WiFi deps where avoidable; `now` passed as a parameter) so
 the logic unit-tests on a host before it ever touches a radio.
@@ -31,11 +31,11 @@ All default to `0` (legacy behavior) in the headers; the per-board
 
 | Flag | Phase | What it turns on | Where |
 |---|---|---|---|
-| `PIG_FEAT_METRICS` | 0 | 1 Hz `PIGM,` metrics line | Core (piglet_fork) — always on |
+| `PIG_FEAT_METRICS` | 0 | 1 Hz `PIGM,` metrics line | Core (warhog_fork) — always on |
 | `PIG_FEAT_DEDUP` | 1 | worker BSSID dedup | every mesh node |
 | `PIG_FEAT_ADAPTIVE_DWELL` | 2 | 50 ms active fast dwell + DFS passive | every mesh node |
-| `PIG_FEAT_DYNAMIC_ASSIGN` | 3 | yield-weighted channel assignment (ADMIN_EXT) | Core (piglet_fork, CYD/W550) |
-| `PIG_FEAT_CORE_ISO` | 4 | per-record SD logging on a core-0 FreeRTOS task (dual-core S3) behind the shared SD/TFT SPI-bus mutex | piglet_fork, CYD/W550 |
+| `PIG_FEAT_DYNAMIC_ASSIGN` | 3 | yield-weighted channel assignment (ADMIN_EXT) | Core (warhog_fork, CYD/W550) |
+| `PIG_FEAT_CORE_ISO` | 4 | per-record SD logging on a core-0 FreeRTOS task (dual-core S3) behind the shared SD/TFT SPI-bus mutex | warhog_fork, CYD/W550 |
 
 > **Note:** `PIG_FEAT_CORE_ISO` is dual-core threading. Its ON path was flipped
 > on by owner decision; validate SD-queue depth/drops (`[CORE-ISO] SD store q:`)

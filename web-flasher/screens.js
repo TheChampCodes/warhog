@@ -1,4 +1,4 @@
-// Piglet screen demos. Pig scenes are ported from PigWorld.cpp timings; sprites
+// WarHog screen demos. Pig scenes are ported from PigWorld.cpp timings; sprites
 // are decoded straight from pig_sprites.h (window.PIG, see pig.js). 20 fps.
 (function(){
 var W0=2,W1=3,W2=4,W3=5,STAND=0,BLINK=1,SNIFF1=6,CROUCH=8,JUMP=9,LAND=10,HAPPY=11;
@@ -63,7 +63,7 @@ function mountPig(el,o){
 function mountCyd(el){
   el.innerHTML=''
   +'<div class="cyd">'
-  +'<div class="cyd-hd"><span class="cyd-pig">🐷</span><span class="cyd-ttl">PIGLET<b>CORE</b></span>'
+  +'<div class="cyd-hd"><span class="cyd-pig">🐷</span><span class="cyd-ttl">WARHOG<b>CORE</b></span>'
   +'<span class="cyd-bat"><i></i>4.12V</span>'
   +'<span class="cyd-dots"><u class="y"></u>GPS <u></u>SD <u></u>RF</span></div>'
   +'<div class="cyd-sec">RADIO / MESH ROLE</div>'
@@ -85,7 +85,7 @@ function mountCyd(el){
 function mountWave(el){
   el.innerHTML=''
   +'<div class="wave">'
-  +'<div class="wv-hd"><span class="wv-ttl">Piglet</span>'
+  +'<div class="wv-hd"><span class="wv-ttl">WarHog</span>'
   +'<span class="wv-ic"><b class="arr"></b><b class="sd"></b><b class="gps"></b></span></div>'
   +'<div class="wv-l"><span>Scan:</span> ACTIVE</div>'
   +'<div class="wv-l"><span>SD:</span> OK</div>'
@@ -108,7 +108,7 @@ window.mountPigScreens=function(root){
     var k=el.getAttribute('data-screen');
     if(k==='cyd'){ mountCyd(el); return; }
     if(k==='wave'){ mountWave(el); return; }
-    if(k==='piglet'){ mountPig(el,{size:'L',W:128,H:64,two:true,bg:'#060709',skyTint:'#1a1403',sky:'#ffcf3a',land:'#39bffb',ground:52,pigX:22,hopH:13,scroll:1}); return; }
+    if(k==='warhog'){ mountPig(el,{size:'L',W:128,H:64,two:true,bg:'#060709',skyTint:'#1a1403',sky:'#ffcf3a',land:'#39bffb',ground:52,pigX:22,hopH:13,scroll:1}); return; }
     if(k==='c3'){ mountPig(el,{size:'S',W:72,H:40,two:false,bg:'#060709',sky:'#a9e7ff',land:'#a9e7ff',ground:32,pigX:14,hopH:8,scroll:1}); return; }
   });
 };

@@ -29,12 +29,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { env: xiao_c5,                  dir: "Arduino Files/piglet_fork",    chip: esp32c5 }
-          - { env: freenove-s3-cyd-ham-ui4,  dir: "Piglet_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
-          - { env: guition-jc8048w550,       dir: "Piglet_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
+          - { env: xiao_c5,                  dir: "Arduino Files/warhog_fork",    chip: esp32c5 }
+          - { env: freenove-s3-cyd-ham-ui4,  dir: "WarHog_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
+          - { env: guition-jc8048w550,       dir: "WarHog_Freenove_S3_CYD_HAM_UI4", chip: esp32s3 }
           - { env: esp32c3_oled,             dir: "c3_node",                       chip: esp32c3 }
-          - { env: pigletnode_c5,            dir: "PigletNode",                    chip: esp32c5 }
-          - { env: waveshare_c6,             dir: "waveshareDisplayMiniPiglet",    chip: esp32c6 }
+          - { env: warhognode_c5,            dir: "WarHogNode",                    chip: esp32c5 }
+          - { env: waveshare_c6,             dir: "waveshareDisplayMiniWarHog",    chip: esp32c6 }
     steps:
       - uses: actions/checkout@v4
 

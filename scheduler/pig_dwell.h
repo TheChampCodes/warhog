@@ -1,4 +1,4 @@
-// pig_dwell.h — DROP-IN shared across all Piglet node firmwares.
+// pig_dwell.h — DROP-IN shared across all WarHog node firmwares.
 // Scheduler Phase 2 — adaptive dwell / revisit scan policy, flag-gated (default OFF).
 //
 // DESIGN §9: a fast ACTIVE first pass surfaces hidden/low-beacon APs quickly and

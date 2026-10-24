@@ -19,11 +19,11 @@ Phase-5 field-test refinements (see What's left). Day-to-day work is fine-tuning
 
 | Flag | Phase | What it does | Boards |
 |------|-------|--------------|--------|
-| `PIG_FEAT_METRICS` | 0 | 1 Hz `PIGM,` metrics line | piglet_fork (hard-on in `PigMetricsHook.h`) |
+| `PIG_FEAT_METRICS` | 0 | 1 Hz `PIGM,` metrics line | warhog_fork (hard-on in `PigMetricsHook.h`) |
 | `PIG_FEAT_DEDUP` | 1 | worker BSSID dedup (~29% airtime saved, validated) | all mesh nodes |
 | `PIG_FEAT_ADAPTIVE_DWELL` | 2 | two-pass sweep: 50 ms active fast pass, then yield-weighted passive revisits; DFS 5 GHz passive | all mesh nodes |
-| `PIG_FEAT_DYNAMIC_ASSIGN` | 3 | yield-weighted channel assignment (`PIG_MSG_ADMIN_EXT`) | Core: piglet_fork, CYD, W550 |
-| `PIG_FEAT_CORE_ISO` | 4 Steps 1+5 | SD logging **and** the ESP-NOW record drain each get their own core-0 FreeRTOS task + SPI-bus mutex; `[CORE-ISO]` line reports `rt_us`/`rx_drop`/`txtq_max`/`loop_us` | piglet_fork, CYD, W550 |
+| `PIG_FEAT_DYNAMIC_ASSIGN` | 3 | yield-weighted channel assignment (`PIG_MSG_ADMIN_EXT`) | Core: warhog_fork, CYD, W550 |
+| `PIG_FEAT_CORE_ISO` | 4 Steps 1+5 | SD logging **and** the ESP-NOW record drain each get their own core-0 FreeRTOS task + SPI-bus mutex; `[CORE-ISO]` line reports `rt_us`/`rx_drop`/`txtq_max`/`loop_us` | warhog_fork, CYD, W550 |
 | `PIG_FEAT_PAIR_SCHED` | 5 | WarHog dual-node antenna-pair scheduler: explicit per-channel dwell table (70/60/30/120 ms) + single-pass sweep (nodes, via `pig_dwell.h`); Core gives each sub-cluster group's members complementary A/B channel lists + phase offset + rotating DFS (`coreAssignGroup`, S3 only); `[PAIR]` line reports per-group overlap %. **ON by default.** | all mesh nodes (dwell); S3 Core (pair assign + metric) |
 
 **Do NOT change the `#define … 0` defaults in `pig_*.h`** — `tests/test_all.cpp`
@@ -51,7 +51,7 @@ one is born needing a build.
 # Host unit tests — 156 checks, 2 TUs + the replay smoke test.
 ./scheduler/tests/run.sh
 # No host g++ on Windows; run it under WSL:
-wsl bash -c "cd /mnt/c/Users/skons/Desktop/piglet/scheduler/tests && bash run.sh"
+wsl bash -c "cd /mnt/c/Users/skons/Desktop/warhog/scheduler/tests && bash run.sh"
 
 # Firmware (Windows, Git Bash):
 /c/Users/skons/.platformio/penv/Scripts/pio.exe run -d "<dir>" -e "<env>"
@@ -59,12 +59,12 @@ wsl bash -c "cd /mnt/c/Users/skons/Desktop/piglet/scheduler/tests && bash run.sh
 PLATFORMIO_BUILD_FLAGS="-DPIG_FEAT_CORE_ISO=0" pio.exe run -d <dir> -e <env>
 ```
 
-CI matrix (`.github/workflows/build-and-deploy.yml`): `xiao_c5` (`Arduino Files/piglet_fork`),
-`freenove-s3-cyd-ham-ui4` + `guition-jc8048w550` (`Piglet_Freenove_S3_CYD_HAM_UI4`),
-`esp32c3_oled` (`c3_node`), `pigletnode_c5` (`PigletNode`). The `waveshare_c6` solo
+CI matrix (`.github/workflows/build-and-deploy.yml`): `xiao_c5` (`Arduino Files/warhog_fork`),
+`freenove-s3-cyd-ham-ui4` + `guition-jc8048w550` (`WarHog_Freenove_S3_CYD_HAM_UI4`),
+`esp32c3_oled` (`c3_node`), `warhognode_c5` (`WarHogNode`). The `waveshare_c6` solo
 wardriver is not a mesh node and has no scheduler.
 
-`TDongleC5_Piglet/` is an Arduino sketch, **not in CI** — Arduino has no `-I`, so it
+`TDongleC5_WarHog/` is an Arduino sketch, **not in CI** — Arduino has no `-I`, so it
 keeps **copies** of `pig_proto.h`/`pig_dedup.h`/`pig_dwell.h`. Keep those copies
 byte-identical to this folder's, and remember changes there get no build gate.
 
@@ -99,7 +99,7 @@ Step 5 only fit after reclaiming ~32 KB internal RAM (lazy PCAP buffers in `Mara
 internal heap, not threading, was the binding constraint on the S3 Core.
 
 ## Gotchas (don't relearn these)
-- Before committing piglet_fork, `rm -f "Arduino Files/piglet_fork/Piglet.ino.cpp"`
+- Before committing warhog_fork, `rm -f "Arduino Files/warhog_fork/WarHog.ino.cpp"`
   (Arduino build artifact; regenerates, never commit it).
 - `COM13` = a Black Magic Probe (VID 1D50:6018), **not** an ESP. Real ESP32 native
   USB = 303A:1001. No-reset serial monitor: `$TEMP/readport.py` (dtr/rts=False).

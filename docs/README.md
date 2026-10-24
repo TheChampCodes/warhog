@@ -1,4 +1,4 @@
-# Piglet — Developer Wiki
+# WarHog — Developer Wiki
 
 Multi-board ESP32 wardriving & wireless-research suite: Wi-Fi (2.4 + 5 GHz) and BLE
 scanning, GPS-tagged WiGLE/PCAP logging to microSD, an ESP-NOW coordinator/worker mesh
