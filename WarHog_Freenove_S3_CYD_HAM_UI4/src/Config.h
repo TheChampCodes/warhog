@@ -25,7 +25,7 @@ struct Config {
   String blePersonality = "biscuit";   // Core-mode BLE app: "biscuit" (Biscuit Manager) or "wardrivego" (RocketGod Wardrive Go / WarBLE Go iosESP bridge).
   String board = "auto"; // auto | s3 | c5 | c6 | c3 | exp  (pins selected at boot; reboot required after change)
   String speedUnits  = "kmh"; // kmh | mph
-  String theme       = "midnight"; // UI color theme: midnight | nord | dracula | gruvbox | catppuccin | tokyonight (cosmetic only)
+  String theme       = "dracula"; // UI color theme: midnight | nord | dracula | gruvbox | catppuccin | tokyonight (cosmetic only)
   int battPin        = 9;     // GPIO for battery voltage ADC (-1 = disabled). Expects 1:2 voltage divider from LiPo (FNK0104B: GPIO 9).
   bool batteryTest   = false; // Enable battery test (logs elapsed time to /battery_test.csv)
   

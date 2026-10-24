@@ -9,13 +9,14 @@
 <style>
   *,*::before,*::after{box-sizing:border-box}
   :root{
-    --bg:#0a0e13; --card:#111820; --text:#e2eaf4; --muted:#8899ab;
-    --border:#1e2a3a; --input:#0c1219; --inputBorder:#243044;
-    --accent:#2dd4bf; --accentDim:rgba(45,212,191,.15);
-    --primary:#2dd4bf; --primaryText:#0a0e13;
-    --danger:#fb7185; --dangerDim:rgba(251,113,133,.12);
-    --warn:#fbbf24; --warnDim:rgba(251,191,36,.12);
-    --ok:#2dd4bf; --okDim:rgba(45,212,191,.12);
+    /* Dracula theme (matches the CYD firmware default) */
+    --bg:#282a36; --card:#343746; --text:#f8f8f2; --muted:#6272a4;
+    --border:#44475a; --input:#21222c; --inputBorder:#565a74;
+    --accent:#bd93f9; --accentDim:rgba(189,147,249,.15);
+    --primary:#bd93f9; --primaryText:#282a36;
+    --danger:#ff5555; --dangerDim:rgba(255,85,85,.12);
+    --warn:#f1fa8c; --warnDim:rgba(241,250,140,.12);
+    --ok:#50fa7b; --okDim:rgba(80,250,123,.12);
   }
   html{color-scheme:dark}
   body{font-family:system-ui,-apple-system,sans-serif;margin:0 auto;padding:16px;max-width:760px;background:var(--bg);color:var(--text);line-height:1.5}
@@ -24,7 +25,7 @@
   .header .logo{font-size:28px;line-height:1}
   .header h1{font-size:20px;font-weight:700;margin:0}
   .header .sub{font-size:12px;color:var(--muted);margin:0}
-  .header h1 .tag{font-size:11px;font-weight:600;color:var(--accent);background:var(--accentDim);border:1px solid rgba(45,212,191,.35);padding:2px 7px;border-radius:999px;vertical-align:middle;margin-left:7px;letter-spacing:.3px;white-space:nowrap}
+  .header h1 .tag{font-size:11px;font-weight:600;color:var(--accent);background:var(--accentDim);border:1px solid rgba(189,147,249,.35);padding:2px 7px;border-radius:999px;vertical-align:middle;margin-left:7px;letter-spacing:.3px;white-space:nowrap}
 
   .card{border:1px solid var(--border);border-radius:12px;padding:14px;margin:12px 0;background:var(--card)}
   .card h3{margin:0 0 10px 0;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}

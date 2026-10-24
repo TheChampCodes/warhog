@@ -9,11 +9,12 @@
 <style>
   *,*::before,*::after{box-sizing:border-box}
   :root{
-    --bg:#0a0e13; --card:#111820; --text:#e2eaf4; --muted:#8899ab;
-    --border:#1e2a3a; --input:#0c1219; --inputBorder:#243044;
-    --accent:#2dd4bf; --accentDim:rgba(45,212,191,.15);
-    --btn:#182030; --btnHover:#1f2d42; --primary:#2dd4bf; --primaryText:#0a0e13;
-    --danger:#fb7185; --warn:#fbbf24; --blue:#60a5fa;
+    /* Dracula theme (matches the CYD firmware default) */
+    --bg:#282a36; --card:#343746; --text:#f8f8f2; --muted:#6272a4;
+    --border:#44475a; --input:#21222c; --inputBorder:#565a74;
+    --accent:#bd93f9; --accentDim:rgba(189,147,249,.15);
+    --btn:#343746; --btnHover:#424458; --primary:#bd93f9; --primaryText:#282a36;
+    --danger:#ff5555; --warn:#f1fa8c; --blue:#8be9fd;
   }
   html{color-scheme:dark}
   body{
@@ -25,7 +26,7 @@
   .header{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
   .header .logo{font-size:28px;line-height:1}
   .header h1{font-size:20px;font-weight:700;margin:0}
-  .header h1 .fork{font-size:11px;font-weight:600;color:var(--accent);background:var(--accentDim);border:1px solid rgba(45,212,191,.35);padding:2px 7px;border-radius:999px;vertical-align:middle;margin-left:7px;letter-spacing:.3px;white-space:nowrap}
+  .header h1 .fork{font-size:11px;font-weight:600;color:var(--accent);background:var(--accentDim);border:1px solid rgba(189,147,249,.35);padding:2px 7px;border-radius:999px;vertical-align:middle;margin-left:7px;letter-spacing:.3px;white-space:nowrap}
   .header .sub{font-size:12px;color:var(--muted);margin:0}
   .header .toflash{margin-left:auto;font-size:12.5px;white-space:nowrap}
 

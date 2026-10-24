@@ -10,13 +10,14 @@
 <style>
   *,*::before,*::after{box-sizing:border-box}
   :root{
-    --bg:#0a0e13; --card:#111820; --text:#e2eaf4; --muted:#8899ab;
-    --border:#1e2a3a; --input:#0c1219; --inputBorder:#243044;
-    --accent:#2dd4bf; --accentDim:rgba(45,212,191,.15);
-    --btn:#182030; --btnHover:#1f2d42; --primary:#2dd4bf; --primaryText:#0a0e13;
-    --danger:#fb7185; --dangerDim:rgba(251,113,133,.12);
-    --warn:#fbbf24; --warnDim:rgba(251,191,36,.12);
-    --blue:#60a5fa; --ok:#2dd4bf; --okDim:rgba(45,212,191,.12);
+    /* Dracula theme (matches the CYD firmware default) */
+    --bg:#282a36; --card:#343746; --text:#f8f8f2; --muted:#6272a4;
+    --border:#44475a; --input:#21222c; --inputBorder:#565a74;
+    --accent:#bd93f9; --accentDim:rgba(189,147,249,.15);
+    --btn:#343746; --btnHover:#424458; --primary:#bd93f9; --primaryText:#282a36;
+    --danger:#ff5555; --dangerDim:rgba(255,85,85,.12);
+    --warn:#f1fa8c; --warnDim:rgba(241,250,140,.12);
+    --blue:#8be9fd; --ok:#50fa7b; --okDim:rgba(80,250,123,.12);
   }
   html{color-scheme:dark}
   body{
@@ -29,7 +30,7 @@
   .header .logo{font-size:28px;line-height:1}
   .header h1{font-size:20px;font-weight:700;margin:0}
   .header .sub{font-size:12px;color:var(--muted);margin:0}
-  .header h1 .fork{font-size:11px;font-weight:600;color:var(--accent);background:var(--accentDim);border:1px solid rgba(45,212,191,.35);padding:2px 7px;border-radius:999px;vertical-align:middle;margin-left:7px;letter-spacing:.3px;white-space:nowrap}
+  .header h1 .fork{font-size:11px;font-weight:600;color:var(--accent);background:var(--accentDim);border:1px solid rgba(189,147,249,.35);padding:2px 7px;border-radius:999px;vertical-align:middle;margin-left:7px;letter-spacing:.3px;white-space:nowrap}
 
   .card{border:1px solid var(--border);border-radius:12px;padding:14px;margin:12px 0;background:var(--card)}
   .card h3{margin:0 0 10px 0;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
@@ -50,7 +51,7 @@
   .board h2{margin:0;font-size:15px;font-weight:700}
   .chips{display:flex;gap:5px;flex-wrap:wrap}
   .chip{font-size:10px;font-weight:600;letter-spacing:.3px;padding:3px 8px;border-radius:999px;background:var(--input);border:1px solid var(--border);color:var(--muted);text-transform:uppercase}
-  .chip.a{color:var(--accent);border-color:rgba(45,212,191,.35)}
+  .chip.a{color:var(--accent);border-color:rgba(189,147,249,.35)}
   .desc{color:var(--muted);font-size:12.5px;margin:0;flex:1}
 
   /* device screen demos */
@@ -58,7 +59,7 @@
   .screen canvas{border-radius:3px;display:block}
   /* CYD / Guition — CORE main screen */
   .cyd{background:#0a0d11;border-radius:4px;padding:6px 7px 7px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:7px;line-height:1.3;color:var(--text);display:flex;flex-direction:column;gap:5px}
-  .cyd-hd{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:4px;border-bottom:1px solid #1b3a36;padding-bottom:4px;position:relative}
+  .cyd-hd{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:4px;border-bottom:1px solid #44475a;padding-bottom:4px;position:relative}
   .cyd-pig{font-size:12px;line-height:1}
   .cyd-ttl{color:var(--accent);font-weight:700;font-size:8px;letter-spacing:.5px;display:flex;flex-direction:column;line-height:1.05}
   .cyd-ttl b{font-weight:700;font-size:7px}
@@ -70,11 +71,11 @@
   .cyd-sec{color:var(--muted);font-size:6px;letter-spacing:.8px;margin-top:1px}
   .cyd-seg{display:flex;gap:3px}
   .cyd-seg s{flex:1;text-align:center;text-decoration:none;background:#141a20;border:1px solid #223;border-radius:3px;padding:3px 0;color:var(--muted);font-size:6.5px}
-  .cyd-seg s.on{background:var(--accent);color:#05281f;border-color:var(--accent);font-weight:700}
+  .cyd-seg s.on{background:var(--accent);color:#282a36;border-color:var(--accent);font-weight:700}
   .cyd-stat{background:#0e141a;border:1px solid #1b2530;border-radius:3px;padding:4px 6px;color:var(--text);font-size:7px}
   .cyd-stat em{color:var(--accent);font-style:normal;font-weight:700}
   .cyd-cap{display:flex;gap:4px}
-  .cyd-cap s{flex:1;text-align:center;background:var(--accent);color:#05281f;border-radius:3px;padding:3px 0;font-size:6.5px;font-weight:700}
+  .cyd-cap s{flex:1;text-align:center;background:var(--accent);color:#282a36;border-radius:3px;padding:3px 0;font-size:6.5px;font-weight:700}
   .cyd-cards,.cyd-cards2{display:grid;gap:4px}
   .cyd-cards{grid-template-columns:1fr 1fr 1fr}
   .cyd-cards2{grid-template-columns:1fr 1fr}
@@ -86,7 +87,7 @@
   .cc.p{border-left-color:#c084fc} .cc.p b{color:#c084fc}
   .cyd-nav{display:flex;gap:3px;margin-top:2px}
   .cyd-nav u{flex:1;text-align:center;color:var(--muted);font-size:6.5px;font-weight:700;padding:3px 0}
-  .cyd-nav u.on{background:var(--accent);color:#05281f;border-radius:3px}
+  .cyd-nav u.on{background:var(--accent);color:#282a36;border-radius:3px}
   /* Waveshare ST7789 status (white on black, portrait) */
   .wave{background:#000;border-radius:4px;padding:8px 9px;font-family:ui-monospace,Menlo,Consolas,monospace;color:#fff;font-size:9px;line-height:1.5;aspect-ratio:172/320;display:flex;flex-direction:column}
   .wv-hd{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px}
