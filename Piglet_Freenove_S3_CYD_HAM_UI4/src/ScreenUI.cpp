@@ -39,17 +39,48 @@ constexpr uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
                                (b >> 3));
 }
 
-constexpr uint16_t C_BG = rgb565(10, 14, 19);
-constexpr uint16_t C_CARD = rgb565(17, 24, 32);
-constexpr uint16_t C_CARD_2 = rgb565(21, 29, 40);
-constexpr uint16_t C_INPUT = rgb565(12, 18, 25);
-constexpr uint16_t C_BORDER = rgb565(30, 42, 58);
-constexpr uint16_t C_TEXT = rgb565(226, 234, 244);
-constexpr uint16_t C_MUTED = rgb565(136, 153, 171);
-constexpr uint16_t C_ACCENT = rgb565(45, 212, 191);
-constexpr uint16_t C_WARN = rgb565(251, 191, 36);
-constexpr uint16_t C_DANGER = rgb565(251, 113, 133);
-constexpr uint16_t C_BLUE = rgb565(96, 165, 250);
+// ---- Color themes (cosmetic only; chosen by cfg.theme, applied live, no reboot) -------
+// These 11 palette tokens drive the whole UI. A handful of community-favorite dark
+// palettes are provided; the legacy look is "midnight" (the default, byte-identical to
+// the old constants). Switching a theme only recolors — no layout or behavior change.
+// The C_* names below stay as accessors so none of the 340+ draw calls change.
+struct UiTheme {
+  const char* name;
+  uint16_t bg, card, card2, input, border, text, muted, accent, warn, danger, blue;
+};
+
+static const UiTheme THEME_PRESETS[] = {
+  // name           bg                card              card2             input             border            text                 muted                accent              warn                danger               blue
+  { "midnight",  rgb565(10,14,19), rgb565(17,24,32), rgb565(21,29,40), rgb565(12,18,25), rgb565(30,42,58),  rgb565(226,234,244), rgb565(136,153,171), rgb565(45,212,191), rgb565(251,191,36), rgb565(251,113,133), rgb565(96,165,250)  },
+  { "nord",      rgb565(46,52,64), rgb565(59,66,82), rgb565(67,76,94), rgb565(41,46,57), rgb565(76,86,106), rgb565(236,239,244), rgb565(97,110,136),  rgb565(136,192,208),rgb565(235,203,139),rgb565(191,97,106),  rgb565(129,161,193) },
+  { "dracula",   rgb565(40,42,54), rgb565(52,55,70), rgb565(66,68,88), rgb565(33,34,44), rgb565(68,71,90),  rgb565(248,248,242), rgb565(98,114,164),  rgb565(189,147,249),rgb565(241,250,140),rgb565(255,85,85),   rgb565(139,233,253) },
+  { "gruvbox",   rgb565(40,40,40), rgb565(60,56,54), rgb565(80,73,69), rgb565(29,32,33), rgb565(102,92,84), rgb565(235,219,178), rgb565(146,131,116), rgb565(250,189,47), rgb565(254,128,25), rgb565(251,73,52),   rgb565(131,165,152) },
+  { "catppuccin",rgb565(30,30,46), rgb565(49,50,68), rgb565(69,71,90), rgb565(24,24,37), rgb565(88,91,112), rgb565(205,214,244), rgb565(108,112,134), rgb565(203,166,247),rgb565(249,226,175),rgb565(243,139,168), rgb565(137,180,250) },
+  { "tokyonight",rgb565(26,27,38), rgb565(36,40,59), rgb565(47,51,77), rgb565(22,22,30), rgb565(59,66,97),  rgb565(192,202,245), rgb565(86,95,137),   rgb565(122,162,247),rgb565(224,175,104),rgb565(247,118,142), rgb565(125,207,255) },
+};
+constexpr int THEME_COUNT = sizeof(THEME_PRESETS) / sizeof(THEME_PRESETS[0]);
+
+static UiTheme g_theme = THEME_PRESETS[0];   // active palette (midnight until config loads)
+
+// Copy the preset named by cfg.theme into g_theme (falls back to midnight).
+static void themeApplyFromConfig() {
+  for (int i = 0; i < THEME_COUNT; ++i)
+    if (cfg.theme == THEME_PRESETS[i].name) { g_theme = THEME_PRESETS[i]; return; }
+  g_theme = THEME_PRESETS[0];
+}
+
+// Palette accessors — runtime now, read exactly like the old constants.
+#define C_BG     (g_theme.bg)
+#define C_CARD   (g_theme.card)
+#define C_CARD_2 (g_theme.card2)
+#define C_INPUT  (g_theme.input)
+#define C_BORDER (g_theme.border)
+#define C_TEXT   (g_theme.text)
+#define C_MUTED  (g_theme.muted)
+#define C_ACCENT (g_theme.accent)
+#define C_WARN   (g_theme.warn)
+#define C_DANGER (g_theme.danger)
+#define C_BLUE   (g_theme.blue)
 
 const char* const NAV_LABELS[] = { "HOME", "FILE", "SYS", "MRDR" };
 
@@ -138,6 +169,8 @@ const Choice ON_OFF[] = {{"false", "Disabled"}, {"true", "Enabled"}};
 const Choice BLE_APPS[] = {{"biscuit", "Biscuit Manager"}, {"wardrivego", "Wardrive Go"}};
 const Choice MESH_MODES[] = {{"none", "None (solo)"}, {"node", "Node (scanner)"}, {"core", "Core (coordinator)"}, {"off", "Off (radio free)"}};
 const Choice ROTATION[] = {{"false", "Normal"}, {"true", "Rotated 180"}};
+const Choice THEMES[] = {{"midnight", "Midnight"}, {"nord", "Nord"}, {"dracula", "Dracula"},
+                         {"gruvbox", "Gruvbox"}, {"catppuccin", "Catppuccin"}, {"tokyonight", "Tokyo Night"}};
 
 #define CHOICES(a) a, static_cast<uint8_t>(sizeof(a) / sizeof(a[0]))
 
@@ -171,6 +204,7 @@ const SettingDef SETTINGS[] = {
   {SettingKind::Number, "BATTERY ADC PIN", "battPin", nullptr, 0, false, "FNK0104B = 9, -1 = off"},
   {SettingKind::Choice, "BATTERY TEST", "batteryTest", CHOICES(ON_OFF), true, nullptr},
   {SettingKind::Choice, "ROTATE SCREEN", "rotateScreen180", CHOICES(ROTATION), true, nullptr},
+  {SettingKind::Choice, "COLOR THEME", "theme", CHOICES(THEMES), false, "UI colors only"},
 };
 
 #undef CHOICES
@@ -222,6 +256,7 @@ String settingValue(const char* key) {
   if (k == "blePersonality") return cfg.blePersonality;
   if (k == "blePhoneSolo") return boolText(cfg.blePhoneSolo);
   if (k == "speedUnits") return cfg.speedUnits;
+  if (k == "theme") return cfg.theme;
   if (k == "meshModeOnBoot") return cfg.meshModeOnBoot;
   if (k == "deviceName") return cfg.deviceName;
   if (k == "beaconSsid") return cfg.beaconSsid;
@@ -273,6 +308,7 @@ const char* const BOTTOM_KEYS[6] = {nullptr, "SPACE", "DEL", "CLR", "ESC", "OK"}
 ScreenUI screenUI;
 
 void ScreenUI::begin() {
+  themeApplyFromConfig();   // apply the saved color theme before the first paint
 #if !defined(BOARD_W550)
   pinMode(BoardPins::BACKLIGHT_PIN, OUTPUT);
   digitalWrite(BoardPins::BACKLIGHT_PIN, HIGH);
@@ -846,6 +882,7 @@ void ScreenUI::handleSystemTap(int16_t x, int16_t contentY) {
 
 void ScreenUI::persistConfig() {
   lastSaveOk = saveConfigToSD();
+  themeApplyFromConfig();   // a COLOR THEME change recolors live (no reboot)
   redraw = true;
 }
 

@@ -29,6 +29,27 @@ A page-based touch UI. Key entry points:
 > on the shared SPI bus; that's why moving UI rendering to another core is treated as risky
 > and why `present()` takes the `SpiBusLock` mutex when core isolation is on.
 
+## Color themes (`cfg.theme`)
+The S3 UI palette is 11 runtime tokens (`g_theme` in `ScreenUI.cpp`) — background, card,
+card2, input, border, text, muted, accent, warn, danger, blue. A `UiTheme` preset table
+holds a handful of community-favorite dark palettes; the active one is chosen by
+`cfg.theme` and applied by `themeApplyFromConfig()`:
+
+| `cfg.theme` | Theme |
+|---|---|
+| `midnight` | Midnight (default — the original teal-on-near-black look) |
+| `nord` | Nord |
+| `dracula` | Dracula |
+| `gruvbox` | Gruvbox |
+| `catppuccin` | Catppuccin (Mocha) |
+| `tokyonight` | Tokyo Night |
+
+Change it from **SYS → COLOR THEME** on the touch UI (or set `theme=` in `/wardriver.cfg`).
+It's **cosmetic only** — no layout or behavior change — and applies live without a reboot
+(`persistConfig()` re-applies and redraws). Adding a theme = one row in `THEME_PRESETS`
+plus its name in the `THEMES` choice list and `Config` validation. Theming is S3-only
+(the OLED/dongle boards have their own minimal UIs).
+
 ## Telemetry screens (`ScreenTelemetry.cpp`)
 `screenTelemetryObserve(ssid, bssid, rssi, ch)` feeds live acquisition data (recent SSIDs,
 RSSI, per-channel activity, logged-row count) that the stats/telemetry pages render. On a

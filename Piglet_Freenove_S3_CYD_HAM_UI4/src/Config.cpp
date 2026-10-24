@@ -127,6 +127,11 @@ void cfgAssignKV(const String& k, const String& v) {
     String vv = v; vv.toLowerCase();
     if (vv == "auto" || vv == "s3" || vv == "exp" || vv == "c5" || vv == "c6" || vv == "c3") cfg.board = vv;
   }
+  else if (k == "theme") {
+    String vv = v; vv.toLowerCase();
+    if (vv == "midnight" || vv == "nord" || vv == "dracula" ||
+        vv == "gruvbox"  || vv == "catppuccin" || vv == "tokyonight") cfg.theme = vv;
+  }
   else if (k == "speedUnits") {
     String vv = v; vv.toLowerCase();
     if (vv == "kmh" || vv == "mph") cfg.speedUnits = vv;
@@ -360,6 +365,10 @@ bool saveConfigToSD() {
   f.println("# Node  — become a scanning mesh node after uploads complete.");
   f.println("# None  — normal solo wardriving (default).");
   f.print("meshModeOnBoot="); f.println(cfg.meshModeOnBoot);
+
+  f.println("");
+  f.println("# UI color theme (cosmetic only): midnight | nord | dracula | gruvbox | catppuccin | tokyonight");
+  f.print("theme="); f.println(cfg.theme);
 
   f.println("");
   f.println("# Rotate screen 180 degrees (true = upside-down mount). Requires reboot.");
