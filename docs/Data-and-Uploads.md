@@ -1,5 +1,9 @@
 # Data & Uploads
 
+> **Fork note:** the config model and WiGLE upload come from upstream; the WDGoWars and
+> Wardrift upload targets (and the chunked/non-blocking upload helpers) are WarHog
+> additions. See [Upstream Differences](Upstream-Differences.md).
+
 ## Configuration file (`/wardriver.cfg`)
 Settings live in a `key=value` file on the SD card, loaded at boot by
 `loadConfigFromSD()` and parsed line-by-line (`parseKeyValueLine` → `cfgAssignKV`).

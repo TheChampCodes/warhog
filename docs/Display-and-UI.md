@@ -1,5 +1,9 @@
 # Display & UI
 
+> **Fork note:** the touch page UI (`ScreenUI`), color themes, the W550 sprite renderer,
+> PigWorld, and the telemetry screens are WarHog additions; upstream Piglet targets small
+> OLED/TFT status displays. See [Upstream Differences](Upstream-Differences.md).
+
 ## Display stacks
 The firmware supports several panels behind a small abstraction so the app code draws the
 same way regardless of hardware.

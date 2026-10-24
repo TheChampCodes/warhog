@@ -5,6 +5,10 @@ NimBLE stack with the BLE scanner/detectors (see [BLE & Detectors](BLE-and-Detec
 ownership rules). The active bridge is chosen by `cfg.blePersonality`
 (`biscuit` → Biscuit Manager, `wardrivego` → Wardrive Go).
 
+> **Fork note:** upstream Piglet reports to a Biscuit *Core* over ESP-NOW; the BLE/GATT
+> phone bridges and the solo-mode bridge are WarHog additions. See
+> [Upstream Differences](Upstream-Differences.md).
+
 ## When a bridge runs
 - **Core mode:** the bridge is mandatory — the app is the only live window into mesh
   traffic — so `enterCoreMode()` owns it.

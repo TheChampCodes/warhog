@@ -5,6 +5,9 @@ A port of the ESP32 Marauder offensive/defensive toolset, orchestrated by
 authorized (your own lab, an authorized pentest, a CTF). They are available on the S3
 boards and the C5 Core; they are not part of the mesh worker role.
 
+> **Fork note:** the entire security suite is a WarHog addition — upstream Piglet is
+> discovery-only. See [Upstream Differences](Upstream-Differences.md#3-new-capabilities-no-upstream-counterpart).
+
 ## Orchestration (`MarauderTools`)
 A single `AttackMode` state machine owns the radio while a tool runs:
 `marauderStartAttack(mode, channel)` tears down conflicting consumers (BLE scanner, mesh

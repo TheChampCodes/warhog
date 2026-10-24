@@ -12,6 +12,8 @@ matrix, see the repository [`README.md`](https://github.com/olosnoks/warhog/blob
 
 ## Start here
 - **[Architecture](Architecture.md)** — the big picture: boards, roles, the boot/loop model, and how a scan becomes a logged row.
+- **[Upstream Differences](Upstream-Differences.md)** — what the fork adds, changes, and keeps vs [Hamspiced/piglet](https://github.com/Hamspiced/piglet), subsystem by subsystem.
+- **[Naming & Lineage](Naming-and-Lineage.md)** — the JCMK→Biscuit→Piglet→WarHog lineage and the Piglet→WarHog rename (why `PIG_*` names persist).
 - **[Hardware & Firmware Projects](Hardware-and-Firmware-Projects.md)** — every board, its SoC, display/SD/GPS wiring, and which PlatformIO env builds it.
 - **[Build & Flash](Build-and-Flash.md)** — PlatformIO envs, the CI/web-flasher pipeline, and the ESP32-S3 USB-JTAG flashing gotcha.
 
