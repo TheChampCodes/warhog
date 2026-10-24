@@ -57,6 +57,22 @@ static volatile uint32_t gRxReqDrops  = 0;  // CORE_REQUEST dropped: coreReqBuf 
 static uint32_t gLoopLastUs = 0;            // previous coreModeTick micros()
 static uint32_t gLoopMaxUs  = 0;            // widest tick gap this window
 static uint32_t gLoopGt5    = 0;            // ticks exceeding 5 ms this window
+
+// Phase 4 Step 5: the ESP-NOW TEXT-record drain moves off the main loop onto a
+// dedicated core-0 task, so record servicing no longer inherits the loop's 95–218 ms
+// jitter (measured). The task does the RT/SD half (parse → gChanHits → SD enqueue);
+// the non-RT half (phone-app mirror + UI telemetry) is handed back to the loop via
+// coreMirrorBuf and runs on core 1 — the same core as the BLE bridge tick — so NimBLE
+// and UI state are only ever touched from one core. SPSC rings: coreTextBuf producer is
+// the RX callback, consumer is this task; coreMirrorBuf producer is this task, consumer
+// is the loop. rt_* track the task's own cadence = the real RX-servicing jitter.
+struct CoreMirrorRec { char bssid[18], ssid[34], auth[12]; int16_t ch, rssi; };
+static CoreMirrorRec     coreMirrorBuf[64];
+static volatile uint8_t  coreMirrorHead = 0, coreMirrorTail = 0;
+static TaskHandle_t      gRxDrainTask = nullptr;
+static volatile bool     gRxDrainRun  = false;
+static volatile uint16_t gRxQMax      = 0;  // max coreTextBuf occupancy the drain saw
+static uint32_t          gRtLastUs = 0, gRtMaxUs = 0, gRtGt5 = 0;  // drain-task cadence
 #endif
 static void tStore(void*) {
   PigLogRec r;
@@ -1008,9 +1024,21 @@ static void coreParseAndLogText(const char* line) {
   }
 #if PIG_FEAT_CORE_ISO
   coreStoreEnqueue(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM);  // SD write -> core-0 task
+  // Non-RT half runs on core 1: hand the parsed AP to the loop (coreMirrorDrain) so the
+  // phone-app push + UI telemetry only ever touch NimBLE/UI state from the loop's core.
+  { uint8_t next = (uint8_t)((coreMirrorTail + 1) % 64);
+    if (next != coreMirrorHead) {
+      CoreMirrorRec& m = coreMirrorBuf[coreMirrorTail];
+      snprintf(m.bssid, sizeof(m.bssid), "%s", bssid.c_str());
+      snprintf(m.ssid,  sizeof(m.ssid),  "%s", ssid.c_str());
+      snprintf(m.auth,  sizeof(m.auth),  "%s", auth.c_str());
+      m.ch = (int16_t)ch; m.rssi = (int16_t)rssi;
+      coreMirrorTail = next;
+    }
+    // ring full -> drop the MIRROR copy only; the SD record above is already safe.
+  }
 #else
   appendWigleRow(bssid, ssid, auth, iso8601NowUTC(), ch, rssi, lat, lon, altM, accM);
-#endif
   // Mirror each AP to whichever phone app this Core is paired with, so it plots
   // in real time on the map (personality chosen by the CORE BLE APP setting).
   if (coreBleIsIosEsp) iosEspCompatPushAp(bssid.c_str(), ssid.c_str(), ch, rssi, auth.c_str());
@@ -1024,7 +1052,61 @@ static void coreParseAndLogText(const char* line) {
   else                            devicesFoundBle++;   // ch 0 => BLE record
   screenTelemetryObserve(ssid, bssid, rssi, ch);
   screenTelemetry.loggedRows++;
+#endif
 }
+
+#if PIG_FEAT_CORE_ISO
+// Core-1 half of the record path: drain the parsed-AP mirror ring the RX task filled,
+// doing the phone-app push + UI telemetry here so NimBLE/screen state stays single-core.
+static void coreMirrorDrain() {
+  while (coreMirrorHead != coreMirrorTail) {
+    const CoreMirrorRec& m = coreMirrorBuf[coreMirrorHead];
+    if (coreBleIsIosEsp) iosEspCompatPushAp(m.bssid, m.ssid, m.ch, m.rssi, m.auth);
+    else                 biscuitCompatPushAp(m.bssid, m.ssid, m.ch, m.rssi, m.auth);
+    coreRecordsRx++;
+    if (m.ch >= 1 && m.ch <= 14)        networksFound2G++;
+    else if (m.ch >= 32 && m.ch <= 177) networksFound5G++;
+    else                                devicesFoundBle++;
+    screenTelemetryObserve(String(m.ssid), String(m.bssid), m.rssi, m.ch);
+    screenTelemetry.loggedRows++;
+    coreMirrorHead = (uint8_t)((coreMirrorHead + 1) % 64);
+  }
+}
+
+// Core-0 RT task: owns the coreTextBuf drain so ESP-NOW records are serviced within a
+// couple ms regardless of what the main loop is doing. Polls every 2 ms and empties the
+// ring each wake; parse + SD-enqueue is the only work done on this core.
+static void tRxDrain(void*) {
+  while (gRxDrainRun) {
+    uint32_t us = micros();
+    if (gRtLastUs) { uint32_t g = us - gRtLastUs; if (g > gRtMaxUs) gRtMaxUs = g; if (g > 5000) gRtGt5++; }
+    gRtLastUs = us;
+    uint16_t occ = (uint16_t)((coreTextTail - coreTextHead + CORE_TEXT_QUEUE) % CORE_TEXT_QUEUE);
+    if (occ > gRxQMax) gRxQMax = occ;
+    while (coreTextHead != coreTextTail) {
+      uint8_t i = coreTextHead;
+      coreTextHead = (uint8_t)((coreTextHead + 1) % CORE_TEXT_QUEUE);
+      coreParseAndLogText(coreTextBuf[i].line);
+    }
+    vTaskDelay(pdMS_TO_TICKS(2));
+  }
+  gRxDrainTask = nullptr;
+  vTaskDelete(nullptr);
+}
+
+static void coreRxDrainStart() {
+  if (gRxDrainTask) return;
+  gRxDrainRun = true;
+  coreMirrorHead = coreMirrorTail = 0;
+  // core 0, prio 3 (above tStore's 2 so records parse promptly, below WiFi).
+  xTaskCreatePinnedToCore(tRxDrain, "tRxDrain", 6144, nullptr, 3, &gRxDrainTask, 0);
+}
+
+static void coreRxDrainStop() {
+  if (!gRxDrainTask) return;
+  gRxDrainRun = false;   // task self-deletes on its next wake
+}
+#endif
 
 // ================================================================
 //  Per-channel async scan (JCMK startNextNodeAssignedScan pattern).
@@ -1296,7 +1378,8 @@ void enterCoreMode() {
   Serial.printf("[CORE] Ready — listening for nodes on ch 6 (BLE app: %s)\n",
                 coreBleIsIosEsp ? "Wardrive Go" : "Biscuit Manager");
 #if PIG_FEAT_CORE_ISO
-  coreStoreStart();   // Phase 4: Core-mode SD logging runs on core 0, parallel to the loop
+  coreStoreStart();   // Phase 4 Step 1: Core-mode SD logging runs on core 0, parallel to the loop
+  coreRxDrainStart(); // Phase 4 Step 5: ESP-NOW record drain gets its own core-0 task
 #endif
 }
 
@@ -1306,7 +1389,8 @@ void exitCoreMode() {
   if (coreBleIsIosEsp) iosEspCompatStopStandalone();
   else                 biscuitCompatStopStandalone();
 #if PIG_FEAT_CORE_ISO
-  coreStoreStop();     // stop the core-0 SD task before WiFi/ESP-NOW churn
+  coreRxDrainStop();   // stop the core-0 record-drain task first (it feeds the SD queue)
+  coreStoreStop();     // then stop the core-0 SD task before WiFi/ESP-NOW churn
 #endif
   if (meshCoreActive) esp_now_deinit();
   meshCoreActive = false;
@@ -1572,25 +1656,32 @@ void coreModeTick() {
   }
 
   // 2. Process pending TEXT records
+#if PIG_FEAT_CORE_ISO
+  coreMirrorDrain();   // the core-0 tRxDrain task owns coreTextBuf now; here (core 1) we
+                       // only drain the parsed-AP mirror ring for phone push + telemetry
+#else
   while (coreTextHead != coreTextTail) {
     uint8_t i = coreTextHead;
     coreTextHead = (coreTextHead + 1) % CORE_TEXT_QUEUE;
     coreParseAndLogText(coreTextBuf[i].line);
   }
+#endif
 
 #if PIG_FEAT_CORE_ISO
   // Phase 4 Step 1 instrumentation: watch the core-0 SD queue depth + drops.
   static uint32_t coreIsoLogMs = 0;
   if (now - coreIsoLogMs >= 5000) {
     coreIsoLogMs = now;
-    Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu | rx_drop txt=%lu req=%lu"
-                  " | loop_us max=%lu gt5ms=%lu | nodes=%u\n",
+    Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu | rx_drop txt=%lu req=%lu txtq_max=%u"
+                  " | rt_us max=%lu gt5ms=%lu | loop_us max=%lu gt5ms=%lu | nodes=%u\n",
                   gLogQ ? (unsigned)uxQueueMessagesWaiting(gLogQ) : 0u,
                   (unsigned long)gStoreDrops,
-                  (unsigned long)gRxTextDrops, (unsigned long)gRxReqDrops,
+                  (unsigned long)gRxTextDrops, (unsigned long)gRxReqDrops, (unsigned)gRxQMax,
+                  (unsigned long)gRtMaxUs, (unsigned long)gRtGt5,
                   (unsigned long)gLoopMaxUs, (unsigned long)gLoopGt5,
                   (unsigned)coreNodeCount);
-    gLoopMaxUs = 0; gLoopGt5 = 0;   // per-window reset so each line is self-contained
+    // per-window reset so each line is self-contained
+    gLoopMaxUs = 0; gLoopGt5 = 0; gRtMaxUs = 0; gRtGt5 = 0; gRxQMax = 0;
   }
 #endif
 
