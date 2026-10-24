@@ -1,6 +1,7 @@
 {
   "name": "Official Piglet — XIAO C5 (Hamspiced, latest release)",
   "version": "latest",
+  "new_install_improv_wait_time": 0,
   "funding_url": "https://github.com/Hamspiced/piglet",
   "builds": [
     {
