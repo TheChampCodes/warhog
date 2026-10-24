@@ -6,7 +6,7 @@ Each board has its own firmware project and PlatformIO environment. Several shar
 ## Board matrix
 | Project (dir) | PlatformIO env | SoC | Display / input | Bands | GPS / SD | Mesh role |
 |---|---|---|---|---|---|---|
-| `WarHog_Freenove_S3_CYD_HAM_UI4/` | `freenove-s3-cyd-ham-ui4` | ESP32-S3 (dual-core, PSRAM) | 2.4″ 240×320 SPI TFT (ILI9341), cap touch | 2.4 GHz | UART GPS, 4-bit SDIO | Core / Solo / Security |
+| `WarHog_Freenove_S3_CYD_HAM_UI4/` | `freenove-s3-cyd-ham-ui4` | ESP32-S3 (dual-core, PSRAM) | 2.8″ 240×320 SPI TFT (ILI9341), cap touch | 2.4 GHz | UART GPS, 4-bit SDIO | Core / Solo / Security |
 | `WarHog_Freenove_S3_CYD_HAM_UI4/` | `guition-jc8048w550` | ESP32-S3 N16R8 | 5.0″ 800×480 RGB IPS, GT911 touch | 2.4 GHz | UART GPS, SPI SD | Core / Solo / Dashboard |
 | `warhog_fork/` | `xiao_c5` | ESP32-C5 (dual-band) | 0.96″ SSD1306 OLED, button | 2.4 + 5 GHz | UART GPS, SPI SD | Core / Solo |
 | `WarHogNode/` | `warhognode_c5` | ESP32-C5 | headless | 2.4 + 5 GHz | — | Worker node |

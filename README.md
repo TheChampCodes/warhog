@@ -15,7 +15,7 @@ This repository builds upon upstream [Hamspiced/piglet](https://github.com/Hamsp
 
 | Feature / Subsystem | Upstream (`Hamspiced/piglet`) | This Fork (`olosnoks/warhog`) |
 |---|---|---|
-| **Supported Hardware** | Seeed XIAO (S3, C5, C6, C3), T-Dongle C5, Waveshare C6 Mini | **+ Freenove S3 CYD (2.4″ Touch)**<br>**+ Guition JC8048W550 (5.0″ 800×480 RGB IPS)**<br>**+ WarHogNode C3 (0.42″ OLED Micro-Node)** |
+| **Supported Hardware** | Seeed XIAO (S3, C5, C6, C3), T-Dongle C5, Waveshare C6 Mini | **+ Freenove S3 CYD (2.8″ Touch)**<br>**+ Guition JC8048W550 (5.0″ 800×480 RGB IPS)**<br>**+ WarHogNode C3 (0.42″ OLED Micro-Node)** |
 | **Offensive & Security Tools** | None (pure wardriving & discovery) | **ESP32 Marauder Port:** Raw 802.11 frame injection, beacon spam, deauth attacks, deauth detection, PMKID capture with Hashcat 22000 export, WPS vulnerability checks, and raw PCAP logging to SD |
 | **Bluetooth Low Energy (BLE)** | Not supported | **BLE Wardriving & Sniffers:** AirTag/FindMy tracking, Flipper Zero detection, Pwnagotchi detection, and multi-platform BLE advertisement floods (Apple, SwiftPair, Samsung, Fast Pair) |
 | **Mesh Ecosystem Support** | JCMK Wardriver ESP-NOW protocol + Biscuit Pro mesh interop (incl. plain-reply, v2.63) | Same mesh base **+ Biscuit Manager BLE/GATT layer** (`BiscuitCompat.cpp`) and **Core BLE Bridge** (`BLEBridge.cpp`) for forwarding BLE records to companion apps |
@@ -32,7 +32,7 @@ Each board target has a dedicated firmware project and full documentation:
 
 | Hardware Project | SoC & Arch | Display & Touch | Wi-Fi Bands | GPS / SD | Primary Mesh Role | Documentation |
 |---|---|---|---|---|---|---|
-| **[Freenove S3 CYD](WarHog_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 (Xtensa Dual-Core) | 2.4″ 240×320 SPI TFT<br>Capacitive Touch | 2.4 GHz | UART GPS<br>4-bit SDIO | Standalone / Coordinator / Security Suite | [CYD Guide](WarHog_Freenove_S3_CYD_HAM_UI4/README.md) |
+| **[Freenove S3 CYD](WarHog_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 (Xtensa Dual-Core) | 2.8″ 240×320 SPI TFT<br>Capacitive Touch | 2.4 GHz | UART GPS<br>4-bit SDIO | Standalone / Coordinator / Security Suite | [CYD Guide](WarHog_Freenove_S3_CYD_HAM_UI4/README.md) |
 | **[Guition JC8048W550](WarHog_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 N16R8 | 5.0″ 800×480 RGB IPS<br>Goodix GT911 Touch | 2.4 GHz | UART GPS<br>SPI SD | Standalone / Coordinator / Dashboard | [Guition Guide](WarHog_Freenove_S3_CYD_HAM_UI4/README.md) |
 | **[WarHogNode C3](c3_node/)** | ESP32-C3 (RISC-V Single-Core) | 0.42″ 72×40 SSD1306 OLED<br>Physical Button | 2.4 GHz | Headless<br>(No GPS/SD) | Worker Node (Autonomous ESP-NOW) | [C3 Node Guide](c3_node/README.md) |
 | **[WarHog Core (XIAO C5)](warhog_fork/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ SSD1306 OLED<br>Physical Button | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART GPS<br>SPI SD | Central Coordinator / Standalone | [Core Guide](warhog_fork/README.md) |
@@ -50,7 +50,7 @@ warhog/
 ├── c3_node/                    # ESP32-C3 0.42″ OLED WarHogNode with flocking graphics
 │   ├── core-patch/             # Patch adding BLE WiGLE logging to WarHog Core
 │   └── docs/                   # Sprite pipelines and visual assets
-├── WarHog_Freenove_S3_CYD_HAM_UI4/ # CYD 2.4″ & Guition 5″ touch suite (Marauder/PCAP/PMKID/BLE)
+├── WarHog_Freenove_S3_CYD_HAM_UI4/ # CYD 2.8″ & Guition 5″ touch suite (Marauder/PCAP/PMKID/BLE)
 ├── WarHogNode/                 # Headless dual-band XIAO C5 mesh worker node
 ├── TDongleC5_WarHog/           # LilyGo T-Dongle C5 USB-A standalone build
 ├── waveshareDisplayMiniWarHog/ # Waveshare ESP32-C6 1.47″ vertical color TFT build

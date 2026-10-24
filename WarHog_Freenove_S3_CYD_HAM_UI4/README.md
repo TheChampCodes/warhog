@@ -13,7 +13,7 @@ The firmware is built and configured via PlatformIO for two distinct hardware pl
 | **Board Model** | Freenove FNK0104B / ESP32-S3 CYD | Guition JC8048W550 |
 | **SoC** | ESP32-S3, Dual-Core Xtensa LX7 @ 240 MHz | ESP32-S3 N16R8, Dual-Core @ 240 MHz |
 | **Memory** | 16 MB Flash, 8 MB OPI PSRAM | 16 MB Flash, 8 MB OPI PSRAM |
-| **Display Panel** | 2.4″ TFT (240×320), SPI (`ILI9341_2`) | 5.0″ IPS (800×480), 16-bit RGB Parallel |
+| **Display Panel** | 2.8″ TFT (240×320), SPI (`ILI9341_2`) | 5.0″ IPS (800×480), 16-bit RGB Parallel |
 | **Display Library** | `bodmer/TFT_eSPI@2.5.43` | `lovyan03/LovyanGFX@^1.1.16` |
 | **Touch Controller** | Capacitive / FT6336 (I²C) | Goodix GT911 Capacitive (I²C) |
 | **SD Card Mode** | 4-bit SDIO (High Speed) | SPI Mode |

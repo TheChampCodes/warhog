@@ -12,7 +12,7 @@ The flasher automatically serves manifest configurations and binaries from [`man
 
 | Board Name | Chip Target | Description | Manifest File |
 |---|---|---|---|
-| **Freenove S3 CYD** | ESP32-S3 | 2.4 GHz scanning, GPS, SD logging, 2.4″ touch display (HAM UI4 suite) | `manifests/freenove-s3-cyd-ham-ui4.json` |
+| **Freenove S3 CYD** | ESP32-S3 | 2.4 GHz scanning, GPS, SD logging, 2.8″ touch display (HAM UI4 suite) | `manifests/freenove-s3-cyd-ham-ui4.json` |
 | **Guition JC8048W550** | ESP32-S3 | 5.0″ 800×480 RGB IPS panel, GT911 touch, GPS, SD logging | `manifests/guition-jc8048w550.json` |
 | **WarHogNode C3** | ESP32-C3 | Minimal 2.4 GHz ESP-NOW mesh worker node with 0.42″ OLED & animated PigWorld | `manifests/esp32c3_oled.json` |
 | **WarHog Core (XIAO C5)** | ESP32-C5 | Dual-band 2.4/5 GHz Wi-Fi 6, GPS, SD, OLED, BLE Bridge | `manifests/xiao_c5.json` (fork) · `manifests/xiao_c5-ham.json` (official) |
