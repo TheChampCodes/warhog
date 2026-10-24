@@ -174,7 +174,7 @@ static bool coreBleIsIosEsp = false;
 // WarHog mesh-size extension: the Core stamps the total active-node count behind
 // this marker in its broadcast heartbeat so every node can show the true herd
 // count. Stock JCMK/Biscuit nodes ignore heartbeat text, so this is harmless.
-// Must match the marker in Arduino Files/WarHog and c3_node.
+// Must match the marker in warhog_fork and c3_node.
 static const char*   WARHOG_MARKER     = "WARHOG1";
 static const uint8_t WARHOG_MARKER_LEN = 7;
 

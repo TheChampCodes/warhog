@@ -92,7 +92,7 @@ On-device cluster management for the **Freenove S3 CYD (HAM UI4)** firmware, in 
 Brought the shared firmware up from the v2.62 fork point to upstream **v2.7**, keeping all
 fork additions (BLE bridge, PigWorld, herd-count display, PlatformIO builds):
 
-- **WarHog Core** (`Arduino Files/warhog_fork`): Wardrift upload (3rd upload service),
+- **WarHog Core** (`warhog_fork`): Wardrift upload (3rd upload service),
   SSID whitelist (`ssidWhitelist1–10`), home-network auto-return + `uploadOnNetworkSeen`,
   per-file WDGoWars upload fix, upload size logging, and the GPIO0 boot-settle guard.
   Biscuit handling keeps the fork's BLE-bridge mirror and herd-count branch **and** adds

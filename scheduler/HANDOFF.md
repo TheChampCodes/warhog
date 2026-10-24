@@ -28,7 +28,7 @@ the code in this folder was the Phase-0 groundwork already written and tested.
 ## What this work is
 
 Moving the WarHog mesh from **static even channel-slicing** (today:
-`perNode = JCMK_NUM_CHANNELS / count` in `Arduino Files/warhog_fork/MeshNode.cpp`)
+`perNode = JCMK_NUM_CHANNELS / count` in `warhog_fork/MeshNode.cpp`)
 to **yield-driven adaptive acquisition**: worker-side BSSID dedup, adaptive
 dwell/revisit, dynamic yield-based channel assignment, FreeRTOS core isolation,
 and GPS-aware scheduling. Full rationale, schemas, algorithms, and the phased
@@ -70,7 +70,7 @@ rollout are in `DESIGN.md`.
    `PIG_FEAT_*`. Use `tests/replay.cpp` to A/B a captured corpus offline.
 1. **Worker dedup** — wire `BssidCache` into the worker scan path behind
    `PIG_FEAT_DEDUP`. In `WarHogNode/WarHogNode.ino` (headless C5 worker) and the
-   node path of `Arduino Files/warhog_fork/MeshNode.cpp`, replace "send every
+   node path of `warhog_fork/MeshNode.cpp`, replace "send every
    found record each cycle" with classify→FULL/DELTA/SUPPRESS. Target: mesh
    bytes/unique-BSSID −40%, unique/min ≥ parity.
 2. **Adaptive dwell/revisit** — fast active first pass + yield-weighted passive
@@ -89,7 +89,7 @@ rollout are in `DESIGN.md`.
 - **On-target firmware (needs PlatformIO + a board):**
   - Worker:      `cd WarHogNode && pio run -t upload`
   - C3 node:     `cd c3_node && pio run -t upload`
-  - XIAO C5 Core: `cd "Arduino Files/warhog_fork" && pio run -t upload`
+  - XIAO C5 Core: `cd "warhog_fork" && pio run -t upload`
   - Monitor:     `pio device monitor -b 115200`
 
 ## Hard invariants (do not break)

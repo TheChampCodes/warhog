@@ -8,7 +8,7 @@ Each board has its own firmware project and PlatformIO environment. Several shar
 |---|---|---|---|---|---|---|
 | `WarHog_Freenove_S3_CYD_HAM_UI4/` | `freenove-s3-cyd-ham-ui4` | ESP32-S3 (dual-core, PSRAM) | 2.4″ 240×320 SPI TFT (ILI9341), cap touch | 2.4 GHz | UART GPS, 4-bit SDIO | Core / Solo / Security |
 | `WarHog_Freenove_S3_CYD_HAM_UI4/` | `guition-jc8048w550` | ESP32-S3 N16R8 | 5.0″ 800×480 RGB IPS, GT911 touch | 2.4 GHz | UART GPS, SPI SD | Core / Solo / Dashboard |
-| `Arduino Files/warhog_fork/` | `xiao_c5` | ESP32-C5 (dual-band) | 0.96″ SSD1306 OLED, button | 2.4 + 5 GHz | UART GPS, SPI SD | Core / Solo |
+| `warhog_fork/` | `xiao_c5` | ESP32-C5 (dual-band) | 0.96″ SSD1306 OLED, button | 2.4 + 5 GHz | UART GPS, SPI SD | Core / Solo |
 | `WarHogNode/` | `warhognode_c5` | ESP32-C5 | headless | 2.4 + 5 GHz | — | Worker node |
 | `c3_node/` | `esp32c3_oled` | ESP32-C3 (single-core) | 0.42″ 72×40 SSD1306 OLED, button | 2.4 GHz | headless | Worker node |
 | `TDongleC5_WarHog/` | *(Arduino sketch, not in CI)* | ESP32-C5 | 0.96″ ST7735 TFT, APA102 LED | 2.4 + 5 GHz | UART, SPI SD | Dongle / Node / Core |

@@ -35,7 +35,7 @@ Each board target has a dedicated firmware project and full documentation:
 | **[Freenove S3 CYD](WarHog_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 (Xtensa Dual-Core) | 2.4″ 240×320 SPI TFT<br>Capacitive Touch | 2.4 GHz | UART GPS<br>4-bit SDIO | Standalone / Coordinator / Security Suite | [CYD Guide](WarHog_Freenove_S3_CYD_HAM_UI4/README.md) |
 | **[Guition JC8048W550](WarHog_Freenove_S3_CYD_HAM_UI4/)** | ESP32-S3 N16R8 | 5.0″ 800×480 RGB IPS<br>Goodix GT911 Touch | 2.4 GHz | UART GPS<br>SPI SD | Standalone / Coordinator / Dashboard | [Guition Guide](WarHog_Freenove_S3_CYD_HAM_UI4/README.md) |
 | **[WarHogNode C3](c3_node/)** | ESP32-C3 (RISC-V Single-Core) | 0.42″ 72×40 SSD1306 OLED<br>Physical Button | 2.4 GHz | Headless<br>(No GPS/SD) | Worker Node (Autonomous ESP-NOW) | [C3 Node Guide](c3_node/README.md) |
-| **[WarHog Core (XIAO C5)](Arduino%20Files/warhog_fork/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ SSD1306 OLED<br>Physical Button | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART GPS<br>SPI SD | Central Coordinator / Standalone | [Core Guide](Arduino%20Files/warhog_fork/README.md) |
+| **[WarHog Core (XIAO C5)](warhog_fork/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ SSD1306 OLED<br>Physical Button | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART GPS<br>SPI SD | Central Coordinator / Standalone | [Core Guide](warhog_fork/README.md) |
 | **[LilyGo T-Dongle C5](TDongleC5_WarHog/)** | ESP32-C5 (RISC-V Dual-Band) | 0.96″ ST7735 Color TFT<br>APA102 RGB LED | 2.4 GHz +<br>5 GHz Wi-Fi 6 | UART Qwiic<br>SPI SD | Portable Dongle / Node / Core | [T-Dongle Guide](TDongleC5_WarHog/README.md) |
 | **[Waveshare C6 Mini](waveshareDisplayMiniWarHog/)** | ESP32-C6 (RISC-V Wi-Fi 6) | 1.47″ 172×320 ST7789 TFT<br>Physical Button | 2.4 GHz Wi-Fi 6 | UART Header<br>SPI SD | Standalone Wardriver | [Waveshare Guide](waveshareDisplayMiniWarHog/README.md) |
 | **[WarHogNode C5](WarHogNode/)** | ESP32-C5 (RISC-V Dual-Band) | None (LED Status Only) | 2.4 GHz +<br>5 GHz Wi-Fi 6 | Headless<br>(No GPS/SD) | Worker Node (Dual-Band Mesh) | [C5 Node Guide](WarHogNode/README.md) |
@@ -46,8 +46,7 @@ Each board target has a dedicated firmware project and full documentation:
 
 ```text
 warhog/
-├── Arduino Files/
-│   └── warhog_fork/            # XIAO C5 Core firmware (BLE bridge, BiscuitCompat, PigWorld)
+├── warhog_fork/                # XIAO C5 Core firmware (BLE bridge, BiscuitCompat, PigWorld)
 ├── c3_node/                    # ESP32-C3 0.42″ OLED WarHogNode with flocking graphics
 │   ├── core-patch/             # Patch adding BLE WiGLE logging to WarHog Core
 │   └── docs/                   # Sprite pipelines and visual assets
@@ -83,7 +82,7 @@ cd c3_node
 pio run -t upload
 
 # Example: Flashing XIAO C5 Core
-cd "Arduino Files/warhog_fork"
+cd "warhog_fork"
 pio run -t upload
 ```
 

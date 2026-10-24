@@ -41,7 +41,7 @@ TDongle is **not** in CI, so those copies get no build gate — review them by h
 
 ## Gotchas worth knowing
 - **Arduino build artifact:** before committing `warhog_fork`, remove
-  `Arduino Files/warhog_fork/WarHog.ino.cpp` (a generated artifact; never commit it).
+  `warhog_fork/WarHog.ino.cpp` (a generated artifact; never commit it).
 - **S3 flashing** needs esptool `--before usb-reset` (see [Build & Flash](Build-and-Flash.md)).
 - A one-off `PLATFORMIO_BUILD_FLAGS` build **overwrites** `firmware.factory.bin` in the
   shared `.pio/build/<env>/` dir — rebuild at release flags before flashing a release image.

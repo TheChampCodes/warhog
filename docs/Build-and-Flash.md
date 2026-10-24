@@ -15,7 +15,7 @@ pio run -d WarHog_Freenove_S3_CYD_HAM_UI4 -e freenove-s3-cyd-ham-ui4
 pio run -d WarHog_Freenove_S3_CYD_HAM_UI4 -e guition-jc8048w550
 pio run -d WarHogNode -e warhognode_c5
 pio run -d c3_node   -e esp32c3_oled
-pio run -d "Arduino Files/warhog_fork" -e xiao_c5
+pio run -d "warhog_fork" -e xiao_c5
 ```
 Build artifacts land in `<project>/.pio/build/<env>/` — `firmware.bin`, `bootloader.bin`,
 `partitions.bin`, and the merged `firmware.factory.bin` (bootloader + partitions +

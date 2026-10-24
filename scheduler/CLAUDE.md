@@ -59,7 +59,7 @@ wsl bash -c "cd /mnt/c/Users/skons/Desktop/warhog/scheduler/tests && bash run.sh
 PLATFORMIO_BUILD_FLAGS="-DPIG_FEAT_CORE_ISO=0" pio.exe run -d <dir> -e <env>
 ```
 
-CI matrix (`.github/workflows/build-and-deploy.yml`): `xiao_c5` (`Arduino Files/warhog_fork`),
+CI matrix (`.github/workflows/build-and-deploy.yml`): `xiao_c5` (`warhog_fork`),
 `freenove-s3-cyd-ham-ui4` + `guition-jc8048w550` (`WarHog_Freenove_S3_CYD_HAM_UI4`),
 `esp32c3_oled` (`c3_node`), `warhognode_c5` (`WarHogNode`). The `waveshare_c6` solo
 wardriver is not a mesh node and has no scheduler.
@@ -99,7 +99,7 @@ Step 5 only fit after reclaiming ~32 KB internal RAM (lazy PCAP buffers in `Mara
 internal heap, not threading, was the binding constraint on the S3 Core.
 
 ## Gotchas (don't relearn these)
-- Before committing warhog_fork, `rm -f "Arduino Files/warhog_fork/WarHog.ino.cpp"`
+- Before committing warhog_fork, `rm -f "warhog_fork/WarHog.ino.cpp"`
   (Arduino build artifact; regenerates, never commit it).
 - `COM13` = a Black Magic Probe (VID 1D50:6018), **not** an ESP. Real ESP32 native
   USB = 303A:1001. No-reset serial monitor: `$TEMP/readport.py` (dtr/rts=False).
