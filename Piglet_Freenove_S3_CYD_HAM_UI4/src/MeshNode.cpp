@@ -325,7 +325,12 @@ static bool jcmkPacketIsBand24(const uint8_t* data, int len) {
     if (tm->text[i] == 'B' && tm->text[i + 1] == '2' && tm->text[i + 2] == '4') return true;
   return false;
 }
-struct CorTextSlot { char    line[JCMK_TEXT_MAX + 1]; };
+struct CorTextSlot {
+  char    line[JCMK_TEXT_MAX + 1];
+#if PIG_FEAT_PAIR_SCHED
+  uint8_t srcNode;   // index into coreNodes[] of the reporting node (0xFF = unknown)
+#endif
+};
 
 static CorReqSlot          coreReqBuf[CORE_REQ_QUEUE];
 static volatile uint8_t    coreReqHead = 0, coreReqTail = 0;
@@ -582,6 +587,14 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
         uint16_t slen = (tm->len < JCMK_TEXT_MAX) ? tm->len : JCMK_TEXT_MAX;
         memcpy(coreTextBuf[coreTextTail].line, tm->text, slen);
         coreTextBuf[coreTextTail].line[slen] = '\0';
+#if PIG_FEAT_PAIR_SCHED
+        // Tag the record with its reporting node so the drain can attribute it to an
+        // antenna-pair member for the overlap metric (0xFF until the node registers).
+        uint8_t sn = 0xFF;
+        for (uint8_t q = 0; q < CORE_MAX_NODES; q++)
+          if (coreNodes[q].active && memcmp(coreNodes[q].mac, info->src_addr, 6) == 0) { sn = q; break; }
+        coreTextBuf[coreTextTail].srcNode = sn;
+#endif
         coreTextTail = next;
       }
 #if PIG_FEAT_CORE_ISO
@@ -1042,7 +1055,51 @@ static void coreSendHeartbeatToAll() {
   esp_now_send(JCMK_BCAST, (uint8_t*)&msg, sizeof(msg));
 }
 
+#if PIG_FEAT_PAIR_SCHED
+// Pair-overlap metric (friend's handoff §Pair Overlap): within each antenna pair
+// (group), how often one node reports a BSSID its pair-partner also saw in the last
+// second — the same-second redundancy the 12-node rig suffered. Event-based (counts
+// sightings, not set cardinality), which directly tracks "is the 2nd receiver
+// duplicating the 1st." Reported per group every 5 s as both/either + pct.
+struct PairSeen { uint32_t hash; uint32_t ms; };
+static PairSeen gPairSeen[CORE_MAX_NODES][16];
+static uint8_t  gPairSeenHead[CORE_MAX_NODES] = {};
+static uint32_t gPairBoth[CORE_MAX_GROUPS + 1]   = {};
+static uint32_t gPairEither[CORE_MAX_GROUPS + 1] = {};
+static uint32_t gPairLogMs = 0;
+
+static uint32_t pairBssidHash(const char* b) {   // FNV-1a over the BSSID text
+  uint32_t h = 2166136261u;
+  for (const char* p = b; *p; ++p) { h ^= (uint8_t)*p; h *= 16777619u; }
+  return h;
+}
+
+static void pairOverlapObserve(uint8_t src, const char* bssid) {
+  if (src >= CORE_MAX_NODES || !coreNodes[src].active) return;
+  uint8_t g = coreNodes[src].group;
+  if (g > CORE_MAX_GROUPS) g = CORE_MAX_GROUPS;
+  const uint32_t h = pairBssidHash(bssid);
+  const uint32_t now = millis();
+  gPairEither[g]++;
+  bool both = false;
+  for (uint8_t j = 0; j < CORE_MAX_NODES && !both; j++) {
+    if (j == src || !coreNodes[j].active || coreNodes[j].group != coreNodes[src].group) continue;
+    for (uint8_t k = 0; k < 16; k++)
+      if (gPairSeen[j][k].hash == h && (now - gPairSeen[j][k].ms) <= 1000u) { both = true; break; }
+  }
+  if (both) gPairBoth[g]++;
+  const uint8_t head = gPairSeenHead[src];
+  gPairSeen[src][head].hash = h;
+  gPairSeen[src][head].ms   = now;
+  gPairSeenHead[src] = (uint8_t)((head + 1) % 16);
+}
+#endif
+
+#if PIG_FEAT_PAIR_SCHED
+static void coreParseAndLogText(const char* line, uint8_t srcNode) {
+#else
 static void coreParseAndLogText(const char* line) {
+#endif
   // JCMK format: BSSID,SSID,AUTH,CHANNEL,RSSI,W
   String s(line);
   int p0 = s.indexOf(',');                if (p0 < 0) return;
@@ -1057,6 +1114,9 @@ static void coreParseAndLogText(const char* line) {
   int    rssi  = s.substring(p3 + 1).toInt();  // toInt() stops at next comma
 #if PIG_FEAT_DYNAMIC_ASSIGN
   { int ci = chIndexOf((uint8_t)ch); if (ci >= 0) gChanHits[ci]++; }  // Phase 3: per-channel yield
+#endif
+#if PIG_FEAT_PAIR_SCHED
+  pairOverlapObserve(srcNode, bssid.c_str());   // Phase 5: antenna-pair redundancy metric
 #endif
 
   double lat = 0, lon = 0, altM = 0, accM = 0;
@@ -1130,7 +1190,11 @@ static void tRxDrain(void*) {
     while (coreTextHead != coreTextTail) {
       uint8_t i = coreTextHead;
       coreTextHead = (uint8_t)((coreTextHead + 1) % CORE_TEXT_QUEUE);
+#if PIG_FEAT_PAIR_SCHED
+      coreParseAndLogText(coreTextBuf[i].line, coreTextBuf[i].srcNode);
+#else
       coreParseAndLogText(coreTextBuf[i].line);
+#endif
     }
     vTaskDelay(pdMS_TO_TICKS(2));
   }
@@ -1707,7 +1771,11 @@ void coreModeTick() {
   while (coreTextHead != coreTextTail) {
     uint8_t i = coreTextHead;
     coreTextHead = (coreTextHead + 1) % CORE_TEXT_QUEUE;
+#if PIG_FEAT_PAIR_SCHED
+    coreParseAndLogText(coreTextBuf[i].line, coreTextBuf[i].srcNode);
+#else
     coreParseAndLogText(coreTextBuf[i].line);
+#endif
   }
 #endif
 
@@ -1726,6 +1794,22 @@ void coreModeTick() {
                   (unsigned)coreNodeCount);
     // per-window reset so each line is self-contained
     gLoopMaxUs = 0; gLoopGt5 = 0; gRtMaxUs = 0; gRtGt5 = 0; gRxQMax = 0;
+  }
+#endif
+
+#if PIG_FEAT_PAIR_SCHED
+  // Phase 5: per-antenna-pair redundancy. pct = how often a group's second node saw a
+  // BSSID its partner just saw (lower is better — the goal is complementary coverage).
+  if (now - gPairLogMs >= 5000) {
+    gPairLogMs = now;
+    for (uint8_t g = 1; g <= CORE_MAX_GROUPS; g++) {
+      if (gPairEither[g] == 0) continue;
+      uint32_t pct = (gPairBoth[g] * 100u) / gPairEither[g];
+      Serial.printf("[PAIR] grp=%u overlap both=%lu either=%lu pct=%lu%%\n",
+                    (unsigned)g, (unsigned long)gPairBoth[g],
+                    (unsigned long)gPairEither[g], (unsigned long)pct);
+      gPairBoth[g] = 0; gPairEither[g] = 0;
+    }
   }
 #endif
 
