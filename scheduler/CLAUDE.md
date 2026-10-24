@@ -7,13 +7,15 @@ channel-slicing to yield-driven acquisition. Full technical design in
 it predates all firmware wiring, so don't read it as current state.
 
 ## Where things stand
-Phases 1–4 are merged to `main` and **ON by default** in the released builds (each
-board's `platformio.ini` `build_flags` set `-DPIG_FEAT_*=1`). Every node firmware's
-channel sweep runs through the Phase-2 `PigSweep` FSM. As of 2026-10-24 the whole
+Phases 1–5 are merged to `main` and **ON by default** in the released builds (each
+board's `platformio.ini` `build_flags` set `-DPIG_FEAT_*=1`). As of 2026-10-24 the
 pipeline is **bench-validated on an S3 CYD Core + up to 4 C5 nodes** (dedup, dynamic
-assignment, SD isolation, and the Step-5 RX-drain task). The only thing outstanding is
-formal **≥12-node scale sign-off**, delegated to a larger cluster; day-to-day work from
-here is fine-tuning, not new phases.
+assignment, SD isolation, Step-5 RX-drain task, and the Phase-5 pair scheduler + overlap
+metric). **Phase 5 changes the DEFAULT scan model** from yield-driven dynamic assignment
+to the friend's deterministic per-channel/antenna-pair scheduler (`PIG_FEAT_PAIR_SCHED`
+overrides Phase-2/3 at the `pig_scan_plan`/`coreAssignGroup` branch points). Outstanding:
+formal **≥12-node scale sign-off** on a larger cluster (the friend's WarHog rig), plus
+Phase-5 field-test refinements (see What's left). Day-to-day work is fine-tuning.
 
 | Flag | Phase | What it does | Boards |
 |------|-------|--------------|--------|
@@ -22,6 +24,7 @@ here is fine-tuning, not new phases.
 | `PIG_FEAT_ADAPTIVE_DWELL` | 2 | two-pass sweep: 50 ms active fast pass, then yield-weighted passive revisits; DFS 5 GHz passive | all mesh nodes |
 | `PIG_FEAT_DYNAMIC_ASSIGN` | 3 | yield-weighted channel assignment (`PIG_MSG_ADMIN_EXT`) | Core: piglet_fork, CYD, W550 |
 | `PIG_FEAT_CORE_ISO` | 4 Steps 1+5 | SD logging **and** the ESP-NOW record drain each get their own core-0 FreeRTOS task + SPI-bus mutex; `[CORE-ISO]` line reports `rt_us`/`rx_drop`/`txtq_max`/`loop_us` | piglet_fork, CYD, W550 |
+| `PIG_FEAT_PAIR_SCHED` | 5 | WarHog dual-node antenna-pair scheduler: explicit per-channel dwell table (70/60/30/120 ms) + single-pass sweep (nodes, via `pig_dwell.h`); Core gives each sub-cluster group's members complementary A/B channel lists + phase offset + rotating DFS (`coreAssignGroup`, S3 only); `[PAIR]` line reports per-group overlap %. **ON by default.** | all mesh nodes (dwell); S3 Core (pair assign + metric) |
 
 **Do NOT change the `#define … 0` defaults in `pig_*.h`** — `tests/test_all.cpp`
 asserts the OFF-default legacy behavior. A flag's ON path gets its own test TU
