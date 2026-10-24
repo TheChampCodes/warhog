@@ -39,7 +39,7 @@ private:
   void draw();
   void drawHeader();
   void drawFooter();
-  void drawPigLogo(int x, int y);
+  void drawShibaLogo(int x, int y);
   void drawPigFace(int cx, int cy, int radius);  // scalable pig for the splash
   void drawStatusChip(int x, const char* label, bool ok, bool warn = false);
   void drawCard(int x, int y, int w, int h, const char* title);

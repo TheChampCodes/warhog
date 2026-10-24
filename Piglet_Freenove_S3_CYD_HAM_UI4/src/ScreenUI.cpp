@@ -1133,15 +1133,67 @@ void ScreenUI::drawPigFace(int cx, int cy, int R) {
   frame.fillCircle(cx + S(3),  cy + S(5), nr, C_BG);
 }
 
-void ScreenUI::drawPigLogo(int x, int y) {
-  frame.fillCircle(x + 12, y + 12, 11, rgb565(244, 114, 182));
-  frame.fillTriangle(x + 3, y + 5, x + 7, y - 2, x + 11, y + 6, rgb565(244, 114, 182));
-  frame.fillTriangle(x + 13, y + 5, x + 18, y - 2, x + 21, y + 7, rgb565(244, 114, 182));
-  frame.fillRoundRect(x + 6, y + 13, 13, 8, 4, rgb565(251, 182, 206));
-  frame.fillCircle(x + 9, y + 11, 1, C_BG);
-  frame.fillCircle(x + 16, y + 11, 1, C_BG);
-  frame.fillCircle(x + 10, y + 17, 1, C_BG);
-  frame.fillCircle(x + 15, y + 17, 1, C_BG);
+void ScreenUI::drawShibaLogo(int x, int y) {
+  // Colors
+  uint16_t C_HOOD  = rgb565(18, 20, 24);
+  uint16_t C_GRAY  = rgb565(65, 70, 76);
+  uint16_t C_FUR   = rgb565(245, 132, 28);
+  uint16_t C_EAR   = rgb565(255, 165, 55);
+  uint16_t C_WHITE = rgb565(255, 245, 225);
+  uint16_t C_LENS  = rgb565(38, 48, 58);
+  uint16_t C_SHINE = rgb565(135, 150, 160);
+  uint16_t C_PINK  = rgb565(245, 85, 110);
+
+  // Ears
+  frame.fillTriangle(x + 2, y + 8, x + 3, y + 0, x + 10, y + 5, C_HOOD);
+  frame.fillTriangle(x + 14, y + 5, x + 21, y + 0, x + 22, y + 8, C_HOOD);
+  frame.fillTriangle(x + 4, y + 6, x + 4, y + 2, x + 9, y + 6, C_EAR);
+  frame.fillTriangle(x + 15, y + 6, x + 20, y + 2, x + 20, y + 6, C_EAR);
+  frame.fillTriangle(x + 5, y + 5, x + 5, y + 3, x + 7, y + 5, C_WHITE);
+  frame.fillTriangle(x + 17, y + 5, x + 19, y + 3, x + 19, y + 5, C_WHITE);
+
+  // Hood silhouette
+  frame.fillCircle(x + 12, y + 13, 11, C_HOOD);
+  frame.fillTriangle(x + 2, y + 11, x + 12, y + 2, x + 22, y + 11, C_HOOD);
+  frame.fillTriangle(x + 3, y + 17, x + 12, y + 23, x + 21, y + 17, C_HOOD);
+
+  // Hood highlights
+  frame.drawLine(x + 5, y + 9, x + 11, y + 4, C_GRAY);
+  frame.drawLine(x + 13, y + 4, x + 19, y + 9, C_GRAY);
+  frame.drawLine(x + 3, y + 13, x + 5, y + 18, C_GRAY);
+  frame.drawLine(x + 21, y + 13, x + 19, y + 18, C_GRAY);
+
+  // Orange Shiba face
+  frame.fillCircle(x + 12, y + 14, 8, C_FUR);
+
+  // White cheeks and muzzle
+  frame.fillCircle(x + 8, y + 17, 4, C_WHITE);
+  frame.fillCircle(x + 16, y + 17, 4, C_WHITE);
+  frame.fillRoundRect(x + 8, y + 16, 9, 5, 2, C_WHITE);
+
+  // Sunglasses
+  frame.fillRoundRect(x + 4, y + 10, 8, 6, 2, C_HOOD);
+  frame.fillRoundRect(x + 13, y + 10, 8, 6, 2, C_HOOD);
+  frame.fillRoundRect(x + 5, y + 11, 6, 4, 2, C_LENS);
+  frame.fillRoundRect(x + 14, y + 11, 6, 4, 2, C_LENS);
+
+  // Glasses bridge
+  frame.drawLine(x + 11, y + 11, x + 13, y + 11, C_HOOD);
+
+  // Lens reflections
+  frame.drawLine(x + 6, y + 11, x + 5, y + 13, C_SHINE);
+  frame.drawLine(x + 15, y + 11, x + 14, y + 13, C_SHINE);
+
+  // Nose
+  frame.fillCircle(x + 12, y + 16, 2, C_HOOD);
+
+  // Smile
+  frame.drawLine(x + 9, y + 19, x + 11, y + 20, C_HOOD);
+  frame.drawLine(x + 11, y + 20, x + 13, y + 20, C_HOOD);
+  frame.drawLine(x + 13, y + 20, x + 15, y + 19, C_HOOD);
+
+  // Tongue
+  frame.fillRoundRect(x + 11, y + 20, 3, 2, 1, C_PINK);
 }
 
 void ScreenUI::drawHeader() {
@@ -1150,7 +1202,7 @@ void ScreenUI::drawHeader() {
   const bool active = scanningEnabled && !autoPaused;
   frame.drawFastHLine(0, HEADER_H - 2, SCREEN_W,
                       lerp565(C_BORDER, C_ACCENT, active ? (0.3f + 0.7f * pulse01(1500)) : 0.0f));
-  drawPigLogo(4, 1);
+  drawShibaLogo(4, 1);
 
   frame.setTextColor(C_TEXT, C_INPUT);
   frame.setTextSize(1);
