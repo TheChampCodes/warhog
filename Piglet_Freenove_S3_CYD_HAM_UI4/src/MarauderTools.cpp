@@ -116,10 +116,39 @@ struct PcapBuffer {
   size_t        frameCount = 0;
 };
 
-static PcapBuffer        s_bufA;
-static PcapBuffer        s_bufB;
-static PcapBuffer*       s_activeBuf    = &s_bufA;
+// The PCAP double-buffer (2 × ~16 KB) MUST live in internal DMA-capable RAM because
+// the promiscuous RX path (pcapEnqueue/mgmtRxCb) is IRAM_ATTR and cannot touch PSRAM.
+// It used to be two static objects reserved at all times (~32 KB of internal RAM), which
+// starved the Core's mesh heap. Now it is allocated lazily only while PcapCapture runs
+// and freed on stop, so a Core — which never captures — keeps that RAM free.
+static PcapBuffer*       s_bufA         = nullptr;
+static PcapBuffer*       s_bufB         = nullptr;
+static PcapBuffer*       s_activeBuf    = nullptr;
 static PcapBuffer*       s_readyBuf     = nullptr;
+
+// Allocate the capture double-buffer in internal RAM. Returns false (and frees any
+// partial allocation) if the internal pool can't satisfy it.
+static bool pcapBuffersAlloc() {
+  if (s_bufA && s_bufB) return true;
+  if (!s_bufA) s_bufA = (PcapBuffer*)heap_caps_malloc(sizeof(PcapBuffer), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!s_bufB) s_bufB = (PcapBuffer*)heap_caps_malloc(sizeof(PcapBuffer), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  if (!s_bufA || !s_bufB) {
+    heap_caps_free(s_bufA); heap_caps_free(s_bufB);
+    s_bufA = s_bufB = s_activeBuf = s_readyBuf = nullptr;
+    Serial.println("[MT] PCAP buffer alloc FAILED (insufficient internal RAM)");
+    return false;
+  }
+  s_bufA->usedBytes = 0; s_bufA->frameCount = 0;
+  s_bufB->usedBytes = 0; s_bufB->frameCount = 0;
+  s_activeBuf = s_bufA; s_readyBuf = nullptr;
+  return true;
+}
+
+// Free the capture double-buffer (null-safe; also used as a no-op for non-capture modes).
+static void pcapBuffersFree() {
+  heap_caps_free(s_bufA); heap_caps_free(s_bufB);
+  s_bufA = s_bufB = s_activeBuf = s_readyBuf = nullptr;
+}
 static volatile bool     s_readyPending = false;
 
 // Full raw ESP-IDF driver re-init. Required for WIFI_IF_AP injection on S3.
@@ -268,7 +297,7 @@ static void IRAM_ATTR pcapEnqueue(const uint8_t* payload, uint16_t len) {
     if (!s_readyPending) {
       s_readyBuf = buf;
       s_readyPending = true;
-      s_activeBuf = (buf == &s_bufA) ? &s_bufB : &s_bufA;
+      s_activeBuf = (buf == s_bufA) ? s_bufB : s_bufA;
       s_activeBuf->usedBytes = 0;
       s_activeBuf->frameCount = 0;
     } else {
@@ -556,13 +585,13 @@ static void stopTxTask() {
 }
 
 void marauderToolsBegin() {
-  s_bufA.usedBytes = 0; s_bufA.frameCount = 0;
-  s_bufB.usedBytes = 0; s_bufB.frameCount = 0;
-  s_activeBuf = &s_bufA;
+  // PCAP buffers are now allocated lazily on PcapCapture start (pcapBuffersAlloc),
+  // not reserved here — frees ~32 KB internal RAM for the mesh in Core/solo modes.
+  s_activeBuf = nullptr;
   s_readyBuf  = nullptr;
   s_readyPending = false;
   s_mode = AttackMode::None;
-  Serial.println("[MT] PCAP double-buffer ready (2 x 16 KB internal RAM)");
+  Serial.println("[MT] ready (PCAP buffers allocated on demand)");
 }
 
 void marauderSetBeaconConfig(BeaconSource src, const String& customSsid, bool channelHop) {
@@ -672,9 +701,9 @@ bool marauderStartAttack(AttackMode mode, uint8_t channel) {
 
   if (mode == AttackMode::Deauth) s_deauthCurrentIdx = 0;
 
-  s_bufA.usedBytes = 0; s_bufA.frameCount = 0;
-  s_bufB.usedBytes = 0; s_bufB.frameCount = 0;
-  s_activeBuf = &s_bufA;
+  // PcapCapture allocates its double-buffer below (pcapBuffersAlloc); other modes
+  // don't use it. Just clear the exchange state here.
+  s_activeBuf = nullptr;
   s_readyBuf = nullptr;
   s_readyPending = false;
 
@@ -703,7 +732,8 @@ bool marauderStartAttack(AttackMode mode, uint8_t channel) {
   if (mode == AttackMode::ProbeSniff || mode == AttackMode::PcapCapture ||
       mode == AttackMode::RawCapture || mode == AttackMode::DeauthDetect) {
     if (mode == AttackMode::PcapCapture) {
-      if (!openPcapFile()) { restoreWifiStateAfterAttack(); s_mode = AttackMode::None; return false; }
+      if (!pcapBuffersAlloc()) { restoreWifiStateAfterAttack(); s_mode = AttackMode::None; return false; }
+      if (!openPcapFile()) { pcapBuffersFree(); restoreWifiStateAfterAttack(); s_mode = AttackMode::None; return false; }
       hashcatWriterOpen("");
     }
     installPromiscuousFilter();
@@ -729,7 +759,8 @@ void marauderStopAttack() {
     return;
   }
   s_mode = AttackMode::None;
-  restoreWifiStateAfterAttack();
+  restoreWifiStateAfterAttack();   // drains any final frames to the pcap file first
+  pcapBuffersFree();               // then release the ~32 KB internal double-buffer
 }
 
 void marauderToolsTick() {
