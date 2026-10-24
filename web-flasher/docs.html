@@ -1,0 +1,237 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WarHog Wardriver — Documentation</title>
+<meta name="description" content="Developer wiki for the WarHog multi-board ESP32 wardriving firmware: architecture, mesh protocol, adaptive scheduler, and how it differs from upstream Piglet.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1f437;</text></svg>">
+<style>
+  *,*::before,*::after{box-sizing:border-box}
+  :root{
+    --bg:#0a0e13; --card:#111820; --text:#e2eaf4; --muted:#8899ab;
+    --border:#1e2a3a; --input:#0c1219; --inputBorder:#243044;
+    --accent:#2dd4bf; --accentDim:rgba(45,212,191,.15);
+    --btn:#182030; --btnHover:#1f2d42; --primary:#2dd4bf; --primaryText:#0a0e13;
+    --danger:#fb7185; --warn:#fbbf24; --blue:#60a5fa;
+  }
+  html{color-scheme:dark}
+  body{
+    font-family:system-ui,-apple-system,sans-serif;
+    margin:0 auto;padding:16px;max-width:1100px;
+    background:var(--bg);color:var(--text);line-height:1.5;
+  }
+
+  .header{display:flex;align-items:center;gap:10px;margin-bottom:16px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+  .header .logo{font-size:28px;line-height:1}
+  .header h1{font-size:20px;font-weight:700;margin:0}
+  .header h1 .fork{font-size:11px;font-weight:600;color:var(--accent);background:var(--accentDim);border:1px solid rgba(45,212,191,.35);padding:2px 7px;border-radius:999px;vertical-align:middle;margin-left:7px;letter-spacing:.3px;white-space:nowrap}
+  .header .sub{font-size:12px;color:var(--muted);margin:0}
+  .header .toflash{margin-left:auto;font-size:12.5px;white-space:nowrap}
+
+  a{color:var(--accent);text-decoration:none}
+  a:hover{text-decoration:underline}
+
+  /* two-column shell */
+  .shell{display:grid;grid-template-columns:230px 1fr;gap:20px;align-items:start}
+  nav.toc{position:sticky;top:16px;border:1px solid var(--border);border-radius:12px;background:var(--card);padding:12px;max-height:calc(100vh - 32px);overflow:auto}
+  nav.toc .grp{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin:12px 4px 5px}
+  nav.toc .grp:first-child{margin-top:2px}
+  nav.toc a{display:block;padding:5px 9px;border-radius:7px;color:var(--text);font-size:13px;line-height:1.35}
+  nav.toc a:hover{background:var(--btn);text-decoration:none}
+  nav.toc a.active{background:var(--accentDim);color:var(--accent);font-weight:600}
+
+  main.doc{min-width:0;border:1px solid var(--border);border-radius:12px;background:var(--card);padding:22px 26px}
+  .doc h1{font-size:23px;margin:.2em 0 .5em;padding-bottom:.3em;border-bottom:1px solid var(--border)}
+  .doc h2{font-size:18px;margin:1.4em 0 .5em;padding-bottom:.25em;border-bottom:1px solid var(--border)}
+  .doc h3{font-size:15px;margin:1.2em 0 .4em;color:var(--text)}
+  .doc h4{font-size:13.5px;margin:1em 0 .3em;color:var(--muted);text-transform:none}
+  .doc p,.doc li{font-size:14px}
+  .doc code{background:var(--input);padding:2px 6px;border-radius:5px;border:1px solid var(--border);font-size:12.5px;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .doc pre{background:var(--input);border:1px solid var(--border);border-radius:9px;padding:12px 14px;overflow:auto;font-size:12.5px;line-height:1.45}
+  .doc pre code{background:none;border:0;padding:0;font-size:12.5px}
+  .doc table{border-collapse:collapse;width:100%;margin:1em 0;font-size:13px;display:block;overflow:auto}
+  .doc th,.doc td{border:1px solid var(--border);padding:6px 10px;text-align:left;vertical-align:top}
+  .doc th{background:var(--input);color:var(--text);font-weight:600}
+  .doc tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+  .doc blockquote{margin:1em 0;padding:8px 14px;border-left:3px solid var(--accent);background:var(--accentDim);border-radius:0 8px 8px 0;color:var(--text)}
+  .doc blockquote p{margin:.3em 0}
+  .doc hr{border:0;border-top:1px solid var(--border);margin:1.5em 0}
+  .doc img{max-width:100%}
+  .doc a{word-break:break-word}
+  .doc ul,.doc ol{padding-left:22px}
+  .doc li{margin:.2em 0}
+
+  .state{color:var(--muted);font-size:14px;padding:30px 4px}
+  .state.err{color:var(--warn)}
+
+  footer{margin-top:22px;padding-top:12px;border-top:1px solid var(--border);display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--muted)}
+
+  @media (max-width:760px){
+    .shell{grid-template-columns:1fr}
+    nav.toc{position:static;max-height:none}
+    main.doc{padding:16px 15px}
+    .header .toflash{display:none}
+  }
+</style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="logo">&#x1f437;</div>
+    <div>
+      <h1>WarHog Docs <span class="fork">developer wiki</span></h1>
+      <p class="sub">How the firmware works &amp; how it differs from upstream Piglet</p>
+    </div>
+    <a class="toflash" href="index.html">&larr; Web Flasher</a>
+  </div>
+
+  <div class="shell">
+    <nav class="toc" id="toc" aria-label="Documentation pages"></nav>
+    <main class="doc" id="doc">
+      <div class="state">Loading documentation&hellip;</div>
+    </main>
+  </div>
+
+  <footer>
+    <span><a href="index.html">web flasher</a></span>
+    <span><a href="https://github.com/olosnoks/warhog/tree/main/docs">docs on GitHub</a></span>
+    <span><a href="https://github.com/olosnoks/warhog">github.com/olosnoks/warhog</a></span>
+    <span>build __VERSION__</span>
+  </footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+<script>
+(function(){
+  // Wiki pages, grouped exactly as docs/README.md orders them.
+  // [slug (the .md basename), sidebar label].
+  var PAGES = [
+    ["__grp","Start here"],
+    ["README","Overview"],
+    ["Architecture","Architecture"],
+    ["Upstream-Differences","Upstream Differences"],
+    ["Naming-and-Lineage","Naming & Lineage"],
+    ["Hardware-and-Firmware-Projects","Hardware & Firmware Projects"],
+    ["Build-and-Flash","Build & Flash"],
+    ["__grp","Subsystems"],
+    ["Module-Reference","Module Reference"],
+    ["Scanning-and-Logging","Scanning & Logging"],
+    ["Mesh-Protocol","Mesh Protocol"],
+    ["Adaptive-Scheduler","Adaptive Scheduler"],
+    ["BLE-and-Detectors","BLE & Detectors"],
+    ["Marauder-Security-Tools","Marauder Security Tools"],
+    ["Companion-Apps-and-Bridges","Companion Apps & Bridges"],
+    ["Data-and-Uploads","Data & Uploads"],
+    ["Display-and-UI","Display & UI"],
+    ["Web-Flasher","Web Flasher"],
+    ["__grp","Working on the code"],
+    ["Serial-and-Telemetry","Serial & Telemetry"],
+    ["Testing-and-Contributing","Testing & Contributing"]
+  ];
+  var SLUGS = {};
+  PAGES.forEach(function(p){ if(p[0] !== "__grp") SLUGS[p[0]] = p[1]; });
+  var DEFAULT = "README";
+  var GH = "https://github.com/olosnoks/warhog/tree/main/docs";
+
+  var tocEl = document.getElementById("toc");
+  var docEl = document.getElementById("doc");
+  var cache = {};
+
+  // Build the sidebar.
+  PAGES.forEach(function(p){
+    if(p[0] === "__grp"){
+      var g = document.createElement("div");
+      g.className = "grp"; g.textContent = p[1];
+      tocEl.appendChild(g);
+    } else {
+      var a = document.createElement("a");
+      a.href = "#" + p[0]; a.textContent = p[1]; a.dataset.slug = p[0];
+      tocEl.appendChild(a);
+    }
+  });
+
+  if(window.marked && marked.setOptions){
+    marked.setOptions({ gfm:true, breaks:false, headerIds:true, mangle:false });
+  }
+
+  function slugId(text){
+    return String(text).toLowerCase().trim()
+      .replace(/[^\w\s-]/g,"").replace(/\s+/g,"-");
+  }
+
+  // Rewrite a rendered fragment: in-wiki .md links become in-page routes,
+  // and give headings stable ids for #anchor jumps.
+  function postProcess(container){
+    container.querySelectorAll("a[href]").forEach(function(a){
+      var href = a.getAttribute("href");
+      var m = /^([A-Za-z0-9._-]+)\.md(#.*)?$/.exec(href);
+      if(m && SLUGS[m[1]]){
+        a.setAttribute("href", "#" + m[1] + (m[2] || ""));
+      } else if(/^https?:/i.test(href)){
+        a.setAttribute("target","_blank");
+        a.setAttribute("rel","noopener");
+      }
+    });
+    container.querySelectorAll("h1,h2,h3,h4").forEach(function(h){
+      if(!h.id) h.id = slugId(h.textContent);
+    });
+  }
+
+  function setActive(slug){
+    tocEl.querySelectorAll("a").forEach(function(a){
+      a.classList.toggle("active", a.dataset.slug === slug);
+    });
+  }
+
+  function jumpTo(anchor){
+    if(!anchor) { window.scrollTo(0,0); return; }
+    var el = document.getElementById(anchor);
+    if(el) el.scrollIntoView({block:"start"});
+  }
+
+  function fail(slug){
+    docEl.innerHTML = "";
+    var d = document.createElement("div");
+    d.className = "state err";
+    d.innerHTML = "Couldn't load <code>" + slug + ".md</code>. " +
+      "If you're viewing this page from a local file, open the " +
+      "<a href='" + GH + "'>documentation on GitHub</a> instead — " +
+      "the pages load over the network on the deployed flasher.";
+    docEl.appendChild(d);
+  }
+
+  function render(slug, anchor){
+    var md = cache[slug];
+    docEl.innerHTML = "";
+    var art = document.createElement("article");
+    art.innerHTML = window.marked ? marked.parse(md) : ("<pre>" + md.replace(/[&<]/g,function(c){return c==="&"?"&amp;":"&lt;";}) + "</pre>");
+    postProcess(art);
+    docEl.appendChild(art);
+    jumpTo(anchor);
+  }
+
+  function load(slug, anchor){
+    setActive(slug);
+    if(cache[slug]){ render(slug, anchor); return; }
+    docEl.innerHTML = '<div class="state">Loading&hellip;</div>';
+    fetch("docs/" + slug + ".md")
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.text(); })
+      .then(function(t){ cache[slug] = t; render(slug, anchor); })
+      .catch(function(){ fail(slug); });
+  }
+
+  function route(){
+    var h = (location.hash || "").replace(/^#/, "");
+    var parts = h.split("#");          // "Page" or "Page#anchor"
+    var slug = parts[0];
+    var anchor = parts[1] || "";
+    if(!SLUGS[slug]) { slug = DEFAULT; anchor = ""; }
+    load(slug, anchor);
+  }
+
+  window.addEventListener("hashchange", route);
+  route();
+})();
+</script>
+</body>
+</html>

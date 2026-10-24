@@ -9,5 +9,8 @@ tools/
 # CI-built firmware images (produced by the Pages workflow, never committed)
 web-flasher/firmware/
 
+# Wiki copied into the flasher at deploy time from docs/ (source of truth); never committed
+web-flasher/docs/
+
 # Arduino-CLI build output (per-sketch); not our firmware — PlatformIO .pio/ is authoritative
 build/
