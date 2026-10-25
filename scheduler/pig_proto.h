@@ -12,7 +12,8 @@ enum PigMsgType : uint8_t {
   PIG_MSG_OBS_BATCH   = 0x20,  // binary observation batch (new/changed records)
   PIG_MSG_DELTA_BATCH = 0x21,  // compact deltas / repeat-summaries
   PIG_MSG_YIELD_HB    = 0x22,  // heartbeat + per-channel yield counters
-  PIG_MSG_ADMIN_EXT   = 0x23   // extended assignment (explicit channel list + knobs)
+  PIG_MSG_ADMIN_EXT   = 0x23,  // extended assignment (explicit channel list + knobs)
+  PIG_MSG_IDENTIFY    = 0x24   // Core -> node: blink your LED so a human can find you
 };
 
 // observation flags
@@ -77,6 +78,16 @@ static_assert(sizeof(pig_admin_ext_t) == 52, "pig_admin_ext_t must be 52B");
 static inline size_t pig_admin_ext_len(uint8_t n) {
   return (size_t)(sizeof(pig_admin_ext_t) - PIG_ADMIN_EXT_MAXCH) + (size_t)n;
 }
+
+// Identify (PIG_MSG_IDENTIFY): Core unicasts this to one node so the node blinks
+// its LED (or flashes its screen) and a human can tell which physical board is
+// which. WarHog<->WarHog only — legacy JCMK/Biscuit nodes ignore an unknown type.
+// Tiny on the wire (it is a control command, not a 212 B record packet).
+typedef struct __attribute__((packed)) {
+  char     magic[4];        // mesh magic — sender fills (this fork: "ENOW")
+  uint8_t  type;            // PIG_MSG_IDENTIFY (0x24)
+  uint8_t  seconds;         // blink duration in seconds (0 = node default)
+} pig_identify_t;           // 6 B on the wire
 
 // CRC16-CCITT (0x1021, init 0xFFFF, MSB-first, no reflect, no xorout).
 // Check value: crc16_ccitt("123456789", 9) == 0x29B1.

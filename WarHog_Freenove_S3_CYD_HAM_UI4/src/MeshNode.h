@@ -86,6 +86,10 @@ void coreModeTick();
 // Called from the on-device Nodes UI.
 void coreSetNodeGroup(uint8_t nodeIdx, uint8_t group);
 
+// Blink the LED of one worker node (PIG_MSG_IDENTIFY) so the operator can tell
+// which physical board a roster entry corresponds to. Called from the Nodes UI.
+void coreIdentifyNode(uint8_t nodeIdx);
+
 // Count active worker nodes currently in a given sub-cluster (for the UI).
 uint8_t coreGroupMemberCount(uint8_t group);
 

@@ -766,6 +766,13 @@ void ScreenUI::handleNodeDetailTap(int16_t x, int16_t contentY) {
   if (selectedNode < 0 || selectedNode >= CORE_MAX_NODES ||
       !coreNodes[selectedNode].active) return;
 
+  // BLINK button (drawn at x160..224, y42..64): identify this physical node.
+  if (contentY >= 42 && contentY <= 64 && x >= 160 && x <= 224) {
+    coreIdentifyNode(selectedNode);
+    redraw = true;
+    return;
+  }
+
   // Sub-cluster -/+  (buttons drawn at y 122..162).
   if (contentY >= 122 && contentY <= 162) {
     const uint8_t g = coreNodes[selectedNode].group;
@@ -1650,6 +1657,14 @@ void ScreenUI::drawNodeDetail() {
                nd.band24Only ? "2.4 GHz" : "2.4 + 5 GHz",
                static_cast<unsigned long>(nd.recordsRx),
                static_cast<unsigned long>((millis() - nd.lastHbMs) / 1000));
+
+  // BLINK button (top-right of the identity card): makes this node flash its LED
+  // so the operator can tell which physical board this roster entry is.
+  frame.fillRoundRect(160, 42, 64, 22, 5, C_ACCENT);
+  frame.setTextDatum(MC_DATUM);
+  frame.setTextColor(C_BG, C_ACCENT);
+  frame.drawString("BLINK", 192, 53, 1);
+  frame.setTextDatum(TL_DATUM);
 
   // Sub-cluster selector.
   drawCard(8, 100, 224, 74, "SUB-CLUSTER");

@@ -447,6 +447,30 @@ static void coreSendReply(const uint8_t* mac) {
   esp_now_send(mac, (uint8_t*)&msg, sizeof(msg));
 }
 
+// Tell one node to blink its LED (PIG_MSG_IDENTIFY) so a human can tell which
+// physical board that roster entry is. Unicast to the node, which is already a
+// registered ESP-NOW peer. WarHog-only: legacy JCMK/Biscuit nodes ignore the
+// unknown type, so it is harmless to send to a mixed mesh. A tiny (6-byte)
+// control frame — unlike record packets it needn't be padded to 212 B.
+static void coreSendIdentify(const uint8_t* mac, uint8_t seconds) {
+  pig_identify_t msg = {};
+  memcpy(msg.magic, JCMK_MAGIC, 4);
+  msg.type    = PIG_MSG_IDENTIFY;
+  msg.seconds = seconds;
+  esp_now_send(mac, (uint8_t*)&msg, sizeof(msg));
+}
+
+// Public: blink the LED of the node at coreNodes[nodeIdx]. Called from the
+// on-device Nodes UI. Sent a few times because a single broadcast-channel frame
+// is easily lost while the node is off scanning another channel.
+void coreIdentifyNode(uint8_t nodeIdx) {
+  if (!meshCoreActive || nodeIdx >= CORE_MAX_NODES || !coreNodes[nodeIdx].active) return;
+  for (uint8_t r = 0; r < 3; r++) {
+    coreSendIdentify(coreNodes[nodeIdx].mac, 6);
+    delay(10);
+  }
+}
+
 // Send Biscuit Node a role assignment (MSG_ROLE_ASSIGN, type=5) then a channel
 // config (MSG_CONFIG_UPDATE, type=10). Both packets must be full size (212 bytes).
 // Called from coreReassignChannels / coreResendAdminToAll for isBiscuit nodes.

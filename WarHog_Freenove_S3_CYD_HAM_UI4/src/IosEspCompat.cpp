@@ -1,4 +1,5 @@
 #include "IosEspCompat.h"
+#include "BoardPins.h"
 #include <stdarg.h>
 #include <string.h>
 
@@ -180,6 +181,23 @@ static void ieCmdStatus() {
   ieEmit("WD:STATUS aps=%lu scans=%lu", (unsigned long)ieApSweep, (unsigned long)ieSweeps);
 }
 
+// `led on|off` from the app: physically identify THIS board (the connected
+// bridge) by flashing its only indicator — the display backlight — then
+// restoring it. The Freenove S3 CYD drives the backlight as a plain GPIO
+// (ScreenUI does digitalWrite on it), so pulsing it here is safe. On the W550
+// the backlight is a LovyanGFX PWM channel we must not fight, so it is a no-op
+// there. A few hundred ms of blocking in this user-initiated, rare command path
+// is acceptable. To identify a NODE's LED instead, use the Core's Nodes screen.
+static void ieLedIdentify() {
+#if !defined(BOARD_W550)
+  pinMode(BoardPins::BACKLIGHT_PIN, OUTPUT);
+  for (uint8_t i = 0; i < 3; i++) {
+    digitalWrite(BoardPins::BACKLIGHT_PIN, LOW);  delay(120);
+    digitalWrite(BoardPins::BACKLIGHT_PIN, HIGH); delay(120);
+  }
+#endif
+}
+
 static void ieHandleText(const char* text, uint16_t tlen) {
   char cmd[IE_CMD_SLOT_LEN];
   size_t n = tlen < sizeof(cmd) - 1 ? tlen : sizeof(cmd) - 1;
@@ -206,7 +224,8 @@ static void ieHandleText(const char* text, uint16_t tlen) {
   else if (!strcmp(word, "status")) ieCmdStatus();
   else if (!strcmp(word, "caps"))   ieSendCaps();
   else if (!strcmp(word, "ch"))     ieEmit("WD:PLAN chans=%s", IE_CHANS);
-  else if (!strcmp(word, "led"))    ieEmit("LED %s", strcmp(rest, "off") ? "on" : "off");
+  else if (!strcmp(word, "led"))    { bool on = strcmp(rest, "off"); if (on) ieLedIdentify();
+                                      ieEmit("LED %s", on ? "on" : "off"); }
   else if (!strcmp(word, "reboot")) { ieEmit("rebooting"); ieRebootReq = true; }
   else if (!strcmp(word, "stop"))   ieStopStreaming();
   else if (!strcmp(word, "start"))  ieStartStreaming();

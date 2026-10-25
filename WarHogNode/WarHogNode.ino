@@ -137,12 +137,18 @@ static void ledWrite(bool on) {
   digitalWrite(LED_BUILTIN, LED_ACTIVE_LOW ? !on : on);
 }
 
-// Non-blocking blink: fast (200 ms) = searching, slow (1000 ms) = linked
+// Identify: while millis() < this, ledTick() does a rapid attention blink so the
+// operator can spot which physical board the Core's roster entry is. Set from
+// the ESP-NOW recv callback (PIG_MSG_IDENTIFY), so volatile.
+static volatile uint32_t identifyUntilMs = 0;
+
+// Non-blocking blink: identify (60 ms rapid) overrides everything; otherwise
+// fast (200 ms) = searching, slow (1000 ms) = linked.
 static void ledTick() {
   static uint32_t lastMs = 0;
   static bool     state  = false;
   uint32_t now = millis();
-  uint32_t interval = haveCore ? 1000 : 200;
+  uint32_t interval = (now < identifyUntilMs) ? 60 : (haveCore ? 1000 : 200);
   if (now - lastMs >= interval) {
     lastMs = now;
     state  = !state;
@@ -291,6 +297,13 @@ static void onRecv(const esp_now_recv_info_t* info, const uint8_t* data, int len
     lastAdminMs = millis();
     if (plainBiscuit) biscuitSetChannels((const jcmk_text_msg_t*)data);
     sendControl(11);
+
+  } else if (type == PIG_MSG_IDENTIFY) {
+    // ---- Core asked us to physically identify ourselves: rapid-blink the LED.
+    // Unicast to us, so no MAC check needed; harmless if it ever arrives early.
+    uint8_t secs = (len >= (int)sizeof(pig_identify_t)) ? data[5] : 0;
+    if (secs == 0) secs = 6;
+    identifyUntilMs = millis() + (uint32_t)secs * 1000;
 
   } else if (type == PIG_MSG_ADMIN_EXT && len >= (int)pig_admin_ext_len(0)) {
     // ---- Phase 3: explicit yield-packed channel list from a WarHog Core ----
