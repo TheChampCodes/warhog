@@ -7,6 +7,16 @@ the base firmware history.
 
 ## Unreleased
 
+### Fix saved cluster profiles not loading after a reboot (CYD/W550)
+- **Profiles saved on the Core didn't come back after a CYD reboot.** Same root cause as the
+  settings-persistence fix below: `meshProfilesSaveToSD()` and `meshProfilesLoad()` accessed
+  `/mesh_profiles.cfg` without the shared SD+TFT `SpiBusLock`, so in Core mode they could collide
+  with the display flush / SD-log task. The save failed silently (the UI still reported success)
+  and the load returned nothing. Both now hold the lock; the save also `flush()`es before closing
+  and logs `[PROFILE] Saved /mesh_profiles.cfg` or a failure to open the file on serial.
+- Verified on a Freenove CYD (assign nodes to sub-clusters → save profile → reboot → load). Not
+  yet tested on the Guition JC8048W550.
+
 ### Fix the Wardrive Go phone bridge and settings persistence (CYD/W550)
 - **Wardrive Go couldn't see the Core.** The iosESP/GhostESP bridge was advertising as
   `WarHog-XXXX` (a `Piglet-XXXX` branding from before, then caught by the WarHog rename), but

@@ -41,6 +41,8 @@ See [Scanning & Logging](Scanning-and-Logging.md).
 - Core: `enterCoreMode()`, `exitCoreMode()`, `coreModeTick()`.
 - Sub-clusters: `coreSetNodeGroup(nodeIdx, group)`, `uint8_t coreGroupMemberCount(group)`.
 - Saved cluster layouts: `meshProfilesInit()` (load from SD), `meshApplyDefault()` (even split).
+  Profiles persist to `/mesh_profiles.cfg` (`P <slot> <name>` / `N <MAC> <group>` lines). Save and load
+  hold the shared SD+TFT `SpiBusLock`; the save logs `[PROFILE] Saved ...` on serial.
 - Solo phone bridge (lives here so it can be torn down on mode change):
   `phoneBridgeSoloTick()`, `phoneBridgeSoloPushAp(bssid, ssid, …)`, `bool phoneBridgeSoloActive()`.
 
