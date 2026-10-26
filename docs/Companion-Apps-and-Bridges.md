@@ -10,19 +10,11 @@ ownership rules). The active bridge is chosen by `cfg.blePersonality`
 > [Upstream Differences](Upstream-Differences.md).
 
 ## When a bridge runs
-The bridge runs in **every** mode, so the phone app sees the device regardless of role.
-Which app is served follows `cfg.blePersonality` (Biscuit Manager / Wardrive Go).
-- **Core mode:** mandatory — the app is the only live window into mesh traffic — so
-  `enterCoreMode()` owns it.
+- **Core mode:** the bridge is mandatory — the app is the only live window into mesh
+  traffic — so `enterCoreMode()` owns it.
 - **Solo mode:** `phoneBridgeSoloTick()` (in `MeshNode.cpp`) brings the same bridge up and
-  feeds it from the local scanner (gated by `cfg.blePhoneSolo`, default on).
-- **Node mode:** the same `phoneBridgeSoloTick()` keeps the bridge up (also gated by
-  `cfg.blePhoneSolo`), and `nodeDoScanTick()` mirrors each sighting to the app as it hands
-  it to the Core. BLE then coexists with the node's ESP-NOW + scanning, at a small airtime
-  cost while a phone is connected; turn `blePhoneSolo` off for maximum worker airtime.
-
-> The bridge is held across the solo↔node transition, so the phone stays connected when you
-> switch between those roles. Only entering **Core** mode re-owns it.
+  feeds it from the local scanner, so one app works in both roles.
+- **Node mode:** no bridge (the node owns the radio for scanning).
 
 ## Biscuit Manager (`BiscuitCompat.cpp`)
 A GATT server presenting as a Biscuit Pro to the Biscuit Manager app.

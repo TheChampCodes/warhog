@@ -18,9 +18,8 @@ struct Config {
   // wardriving, so the app receives this device's own scan results the way it
   // receives a mesh Core's. Which app is served follows blePersonality, the
   // same as in Core mode. Mesh Core mode always brings the bridge up; this
-  // switch governs the non-Core roles — it keeps the app reporting in BOTH solo
-  // and node mode. Turn it off to keep BLE for the Marauder tools alone, or to
-  // free the BT controller RAM (and give a worker node maximum ESP-NOW airtime).
+  // switch only governs solo mode. Turn it off to keep BLE for the Marauder
+  // tools alone, or to free the BT controller RAM.
   bool blePhoneSolo = true;
 
   String blePersonality = "biscuit";   // Core-mode BLE app: "biscuit" (Biscuit Manager) or "wardrivego" (RocketGod Wardrive Go / WarBLE Go iosESP bridge).

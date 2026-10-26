@@ -7,16 +7,6 @@ the base firmware history.
 
 ## Unreleased
 
-### Phone app reports in every mode on the CYD/W550, including node mode
-The BLE phone bridge now stays up while a CYD/W550 runs as a mesh **node**, not just in Core
-and solo modes. A worker node mirrors each of its own sightings to the Biscuit Manager /
-Wardrive Go app (via `phoneBridgeSoloPushAp()` from the node scan loop) as it hands the record
-to the Core, and the bridge is held across the solo↔node transition so the phone stays
-connected. It is gated by the same `blePhoneSolo` setting (renamed in the UI from *PHONE APP
-SOLO* to *PHONE APP BLE*, default on); BLE now coexists with the node's ESP-NOW + scanning at
-a small airtime cost, so turn it off for maximum worker airtime. `blePhoneSolo` is still
-solo-only on the other firmwares.
-
 ### Phone apps now follow solo wardriving, not just mesh Core mode
 The BLE phone bridge used to come up only in mesh **Core** mode, so a device wardriving on its
 own was invisible to the app even though every piece of plumbing was already there. All three
