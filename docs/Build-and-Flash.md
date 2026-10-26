@@ -83,23 +83,3 @@ single flashable image with `esptool merge_bin`, assembles the web-flasher with 
 (`BOARD_HAS_PSRAM`). Note `ESP.getFreeHeap()` on the S3 reports **internal** RAM (PSRAM is
 not in the default malloc pool); DMA-using subsystems (SD, Wi-Fi) draw from that internal
 pool, which is why internal-RAM headroom matters on a Core.
-
-## Updating nodes over the air (Core → WarHogNode)
-The XIAO C5 `warhognode_c5` build uses `default_8MB.csv` (two 3.2 MB app slots + `otadata`),
-so a Core can update it without USB. **A node still on the old `huge_app.csv` layout has no
-second slot — it needs one USB/web reflash first** (it answers `NODE HAS NO OTA SLOT`).
-
-1. Build or download the **app-only** image — not the merged one:
-   `WarHogNode/.pio/build/warhognode_c5/firmware.bin`, or `warhognode_c5.ota.bin` from the
-   deployed flasher's `firmware/` folder (CI publishes it next to each merged image).
-2. Copy it to the Core's SD card as `/fw/warhognode_c5.ota.bin`, then **reboot the Core**. The
-   Core reads the file **once at boot** into PSRAM (validating the ESP image header and chip id
-   and computing the SHA-256). In Core mode it runs with only ~10 KB of free internal RAM, where
-   SD reads silently return bad data, so replacing the file later has no effect until a reboot.
-3. On the Core: **Nodes → pick the node → UPDATE**. The card shows `Image ready: N KB` when idle,
-   then contacting → `UPDATING n%`; the node's LED blinks fast while it receives. If it says
-   `NO IMAGE ON SD` or `NOT A C5 IMAGE`, fix the file and reboot the Core.
-4. The node verifies the SHA-256, switches slot and reboots, then re-pairs with the Core.
-   `CANCEL` aborts; the node abandons an idle update after 15 s and resumes scanning.
-
-Protocol details and the security caveat: [Mesh Protocol](Mesh-Protocol.md#over-the-air-node-update-0x250x27).

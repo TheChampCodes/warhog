@@ -7,15 +7,6 @@ the base firmware history.
 
 ## Unreleased
 
-### Update XIAO C5 nodes over the air from the CYD Core
-New ESP-NOW messages `PIG_MSG_OTA_BEGIN/DATA/ACK` (0x25–0x27) let the Core stream a node's
-app image (`/fw/warhognode_c5.ota.bin` on the SD card, staged into PSRAM at Core boot) to a
-WarHogNode: select the node on the Core's Nodes screen and tap **UPDATE**. Go-back-N transfer with a whole-image SHA-256 check before
-the node switches slot (a bad transfer leaves the old firmware running). `WarHogNode` moves to the
-`default_8MB.csv` partition table to get two app slots — **each node needs one USB/web reflash to
-gain OTA ability**; the app-only `*.ota.bin` is now also published by CI. Node accepts updates only
-from its paired Core MAC (no signature — see the Mesh Protocol doc).
-
 ### Phone app reports in every mode on the CYD/W550, including node mode
 The BLE phone bridge now stays up while a CYD/W550 runs as a mesh **node**, not just in Core
 and solo modes. A worker node mirrors each of its own sightings to the Biscuit Manager /

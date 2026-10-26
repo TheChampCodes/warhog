@@ -30,10 +30,6 @@ drop them.
 | `0x21` | `PIG_MSG_DELTA_BATCH` | Node → Core | compact deltas / repeat-summaries |
 | `0x22` | `PIG_MSG_YIELD_HB` | Node → Core | heartbeat + per-channel yield counters |
 | `0x23` | `PIG_MSG_ADMIN_EXT` | Core → Node | explicit yield-ordered channel list + knobs |
-| `0x24` | `PIG_MSG_IDENTIFY` | Core → Node | blink the node's LED so a human can find it |
-| `0x25` | `PIG_MSG_OTA_BEGIN` | Core → Node | start a firmware update (size, chunk count, SHA-256) |
-| `0x26` | `PIG_MSG_OTA_DATA` | Core → Node | one in-order firmware chunk (≤192 B) |
-| `0x27` | `PIG_MSG_OTA_ACK` | Node → Core | cumulative ack / READY / DONE / error status |
 
 All structs are defined in [`scheduler/pig_proto.h`](https://github.com/olosnoks/warhog/blob/main/scheduler/pig_proto.h),
 carry the 4-byte magic `"ENOW"`, and are CRC16-CCITT protected (`crc16_ccitt`).
@@ -61,26 +57,6 @@ A flag-on Core sends each confirmed WarHog node `{1,6,11}` plus a yield-ranked s
 5 GHz via 0x23; legacy peers keep the contiguous-range ADMIN. **All** workers parse 0x23
 unconditionally (so `pig_proto.h` must be `#include`d even with dedup off) and fold it
 into their explicit-list scan path.
-
-### Over-the-air node update (0x25–0x27)
-The Core can push new firmware to a **WarHogNode (XIAO C5)** over the same ESP-NOW link — no
-USB, no Wi-Fi infrastructure. Control flow:
-
-1. `OTA_BEGIN` (Core → node, resent every 400 ms) carries a random `session`, the image `size`,
-   `chunks = ceil(size/192)` and the **SHA-256 of the whole image**. The node parks on the home
-   channel (scanning pauses), opens its next OTA slot and answers `OTA_ACK{READY}`.
-2. `OTA_DATA` chunks stream with a **go-back-N window of 4**. The node accepts only the next
-   in-order chunk, writes it, and acks cumulatively (`next` = chunks written). Out-of-order or
-   duplicate chunks just make it re-send its ack; the Core rewinds to the last ack after 250 ms
-   of silence and gives up after 10 s without progress.
-3. When all chunks are in, the node compares the SHA-256; on a match it switches boot partition,
-   acks `DONE` and reboots. On a mismatch it discards the update and **keeps running its old
-   firmware** (`ERR_SHA`). A node with no OTA slot answers `ERR_SPACE`.
-
-Only the node's **paired Core MAC** is accepted. That is a source-address check, not
-authentication — a spoofed MAC in radio range could push firmware — and the SHA-256 is an
-integrity check, not a signature. An image is also rejected by the Core before sending unless it
-starts with the ESP image magic (`0xE9`) and carries the ESP32-C5 chip id.
 
 ## Sub-clusters (groups) = antenna pairs
 A node's `group` (1..9) is its sub-cluster. `coreAssignGroup()` balances channels **within
