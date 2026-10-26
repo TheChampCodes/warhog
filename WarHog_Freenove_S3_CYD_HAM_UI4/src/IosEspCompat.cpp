@@ -39,7 +39,7 @@ static bool                  ieStreaming  = false;   // between WD:BEGIN and WD:
 static bool                  ieGpsPresent = false;   // runtime GPS presence-detect
 static NimBLECharacteristic* chTx         = nullptr;
 static NimBLEServer*         ieServer     = nullptr;
-static char                  ieName[16]   = "WarHog";
+static char                  ieName[16]   = "iosESP";
 static uint32_t              ieReplyId    = 0;        // id stamped on DATA frames
 
 // Per-sweep / session counters for WD:STATUS.
@@ -344,12 +344,12 @@ static void ieBuildName() {
   char o4 = 0, o5 = 0;  // chars of the 2nd-to-last and last octets
   if (a.length() >= 17) {
     // positions 12..13 = 2nd-to-last octet, 15..16 = last octet
-    snprintf(ieName, sizeof(ieName), "WarHog-%c%c%c%c",
+    snprintf(ieName, sizeof(ieName), "iosESP-%c%c%c%c",
              toupper((unsigned char)a[12]), toupper((unsigned char)a[13]),
              toupper((unsigned char)a[15]), toupper((unsigned char)a[16]));
   } else {
     (void)o4; (void)o5;
-    snprintf(ieName, sizeof(ieName), "WarHog");
+    snprintf(ieName, sizeof(ieName), "iosESP");
   }
 }
 
@@ -360,7 +360,7 @@ void iosEspCompatBeginStandalone(const char* fallbackName) {
   if (ieActive) return;
   (void)fallbackName;
   if (!NimBLEDevice::isInitialized())
-    NimBLEDevice::init("WarHog");
+    NimBLEDevice::init("iosESP");
   NimBLEDevice::setMTU(247);
   NimBLEDevice::setPower(9);
 

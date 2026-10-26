@@ -27,7 +27,10 @@ A GATT server presenting as a Biscuit Pro to the Biscuit Manager app.
   `biscuitCompatSnapshotBegin/Record/Complete()`, which stream per-node MAC + record counts.
 
 ## Wardrive Go (`IosEspCompat.cpp`)
-The iOS "Wardrive Go" bridge (the `iosesp` protocol).
+The iOS "Wardrive Go" / WarBLE Go bridge (the `iosesp` protocol).
+- **Advertised name must be `iosESP-XXXX`** (`ieBuildName()`) — the app scans for that prefix,
+  so this is a protocol identifier, **not** a branding string. Do not rename it to the product
+  name, or the app stops seeing the device. (`XXXX` = last two octets of the BLE address.)
 - Lifecycle mirrors Biscuit: `iosEspCompatBeginStandalone(name)` / `StopStandalone` / `Tick`.
 - Data: `iosEspCompatPushAp(...)`, `iosEspCompatPushGps(lat, lon, alt, sats)`.
 - `iosEspCompatSetGpsPresent(present)` tells the app whether a GPS module is *wired* (so a

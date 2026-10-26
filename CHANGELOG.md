@@ -7,6 +7,20 @@ the base firmware history.
 
 ## Unreleased
 
+### Fix the Wardrive Go phone bridge and settings persistence (CYD/W550)
+- **Wardrive Go couldn't see the Core.** The iosESP/GhostESP bridge was advertising as
+  `WarHog-XXXX` (a `Piglet-XXXX` branding from before, then caught by the WarHog rename), but
+  the RocketGod Wardrive Go / WarBLE Go app scans for the protocol name `iosESP-XXXX`. Restored
+  that name so the app discovers the device again. The Biscuit Manager bridge was unaffected
+  (it matches on service UUID, not the GAP name).
+- **Settings didn't persist across reboots.** On the CYD the SD card and TFT share one SPI bus;
+  `saveConfigToSD()` wrote without the `SpiBusLock`, so a settings change in Core mode collided
+  with the UI/SD tasks on the bus and the write silently failed. It now takes the shared-bus
+  lock (no-op when `PIG_FEAT_CORE_ISO` is off).
+- **Settings UX:** the phone-app selector is renamed *CORE BLE APP* → *CORE PHONE APP* and the
+  `BISCUIT REPORT` hint clarified, so it's no longer confused with the phone app — `biscuitReport`
+  is ESP-NOW forwarding to a separate Biscuit coordinator, `blePersonality` is the phone app.
+
 ### Update mesh nodes over the air from the CYD Core
 New ESP-NOW messages `PIG_MSG_OTA_BEGIN/DATA/ACK` (0x25–0x27) let the Core stream a node's
 app image (`/fw/<node-env>.ota.bin` on the SD card, staged into PSRAM at Core boot) to a
