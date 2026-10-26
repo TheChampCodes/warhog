@@ -52,18 +52,27 @@ python <.platformio>/packages/tool-esptoolpy/esptool.py \
 (The merged `firmware.factory.bin` at `0x0` avoids juggling per-partition offsets.)
 
 ### ESP32-C5 (XIAO C5 Core / WarHogNode) — browser flasher won't open the port
-The XIAO C5 has **native USB-Serial/JTAG** with no auto-reset UART bridge (unlike the CYD's
-CH340), so the browser flasher often can't reset it into the bootloader while the node/Core
-firmware is running — the port fails to open or drops on connect. Put it in **download mode by
-hand first**: hold **BOOT**, tap **RESET**, release **BOOT**; the C5 re-enumerates in ROM
-download mode, then click Install and pick that port (tap RESET afterwards to run the new
-firmware). If the transfer still drops mid-flash, the esptool **stub** can break the C5's
-USB-JTAG link — flash from a terminal with `--no-stub` instead:
+This is a **known flasher-library bug, not a firmware or BOOT-button problem**. Newer XIAO C5
+silicon (**rev v1.2**, chip magic `0x30e1706f`) isn't recognised by the esptool-js bundled in
+**esp-web-tools 10.4.0** (esptool-js 0.6), so chip detection throws and the browser reports it
+as a failure to connect / open the port. The S3 CYD is a different chip and flashes normally on
+the same page. Fixed upstream in **esptool-js 0.7.0** (espressif/esptool-js#262), which no
+`esp-web-tools` release bundles yet — so bumping the `<script>` version does **not** fix it.
+
+Until an `esp-web-tools` release ships esptool-js 0.7.0, flash the C5 from a **terminal** with an
+up-to-date esptool (v5+ recognises rev v1.2). Download the merged `*.bin` from the flasher's
+`firmware/` folder and write it at offset 0:
 ```bash
-esptool --chip esp32c5 --no-stub write-flash 0x0 warhognode_c5.bin   # or xiao_c5.bin for the Core
+pip install -U esptool                                        # need v5+ for C5 rev v1.2
+esptool --chip esp32c5 write-flash 0x0 warhognode_c5.bin      # or xiao_c5.bin for the Core
+#   add --no-stub if it stops at "Failed to start stub flasher"
 ```
-Also note the C5's second-stage bootloader lives at **0x2000**, not 0x0 (CI builds the merged
-image accordingly); the merged `*.bin` still flashes at offset 0.
+The C5's second-stage bootloader lives at **0x2000**, not 0x0 — CI builds the merged image
+accordingly (verified: `0xFF` padding at 0x0, bootloader magic `0xE9` at 0x2000, identical layout
+to upstream's working image), and the merged `*.bin` still flashes at offset 0.
+
+> **Restoring browser flashing** would mean self-hosting an `esp-web-tools` build with esptool-js
+> pinned to 0.7.0 (vendored into `web-flasher/`) until an upstream release includes it.
 
 ### Reading serial without rebooting the board
 Opening a serial monitor normally asserts DTR and **resets** the board. To attach without

@@ -256,18 +256,13 @@
           <a href="firmware/xiao_c5.bin" download data-dl>Download .bin</a>
           <a href="manifests/xiao_c5.json" data-mf>manifest</a>
         </div>
-        <details open><summary>C5 won&rsquo;t open over serial? Enter download mode</summary>
-<p class="desc" style="margin:4px 0 8px">The XIAO C5 has native USB-Serial/JTAG &mdash; no auto-reset chip like the CYD &mdash; so the browser often can&rsquo;t reset it into the bootloader while firmware is running. Force it by hand:</p>
-<pre><span class="c"># 1. hold BOOT  2. tap RESET  3. release BOOT</span>
-<span class="c"># The C5 re-appears in download mode:</span>
-<span class="c"># click Install, pick that port. Tap</span>
-<span class="c"># RESET afterwards to run the new fw.</span>
-<span class="c">#</span>
-<span class="c"># Still drops mid-flash? The stub can</span>
-<span class="c"># break the USB-JTAG link - use a terminal:</span>
-esptool --chip esp32c5 \
-  --no-stub write-flash \
-  0x0 xiao_c5.bin</pre>
+        <details open><summary>C5 won&rsquo;t open over serial? Known flasher bug &mdash; use a terminal</summary>
+<p class="desc" style="margin:4px 0 8px">Newer XIAO C5 silicon (rev v1.2) isn&rsquo;t recognised by the esptool-js this browser flasher bundles (esp-web-tools 10.4.0 / esptool-js 0.6), so the connection fails before it can flash &mdash; not a BOOT-button or firmware issue. The S3 CYD is a different chip, so it works. Fixed upstream in esptool-js 0.7.0, which no esp-web-tools release ships yet. Until then, flash the downloaded <b>.bin</b> from a terminal with up-to-date esptool:</p>
+<pre><span class="c"># one-time: esptool v5+ supports C5 rev v1.2</span>
+pip install -U esptool
+<span class="c"># flash the merged .bin at offset 0:</span>
+esptool --chip esp32c5 write-flash 0x0 xiao_c5.bin
+<span class="c"># add --no-stub if it stops at "stub flasher"</span></pre>
         </details>
       </div>
 
@@ -296,18 +291,13 @@ esptool --chip esp32c5 \
           <a href="firmware/warhognode_c5.bin" download data-dl>Download .bin</a>
           <a href="manifests/warhognode_c5.json" data-mf>manifest</a>
         </div>
-        <details open><summary>C5 won&rsquo;t open over serial? Enter download mode</summary>
-<p class="desc" style="margin:4px 0 8px">The XIAO C5 has native USB-Serial/JTAG &mdash; no auto-reset chip like the CYD &mdash; so the browser often can&rsquo;t reset it into the bootloader while firmware is running. Force it by hand:</p>
-<pre><span class="c"># 1. hold BOOT  2. tap RESET  3. release BOOT</span>
-<span class="c"># The C5 re-appears in download mode:</span>
-<span class="c"># click Install, pick that port. Tap</span>
-<span class="c"># RESET afterwards to run the new fw.</span>
-<span class="c">#</span>
-<span class="c"># Still drops mid-flash? The stub can</span>
-<span class="c"># break the USB-JTAG link - use a terminal:</span>
-esptool --chip esp32c5 \
-  --no-stub write-flash \
-  0x0 warhognode_c5.bin</pre>
+        <details open><summary>C5 won&rsquo;t open over serial? Known flasher bug &mdash; use a terminal</summary>
+<p class="desc" style="margin:4px 0 8px">Newer XIAO C5 silicon (rev v1.2) isn&rsquo;t recognised by the esptool-js this browser flasher bundles (esp-web-tools 10.4.0 / esptool-js 0.6), so the connection fails before it can flash &mdash; not a BOOT-button or firmware issue. The S3 CYD is a different chip, so it works. Fixed upstream in esptool-js 0.7.0, which no esp-web-tools release ships yet. Until then, flash the downloaded <b>.bin</b> from a terminal with up-to-date esptool:</p>
+<pre><span class="c"># one-time: esptool v5+ supports C5 rev v1.2</span>
+pip install -U esptool
+<span class="c"># flash the merged .bin at offset 0:</span>
+esptool --chip esp32c5 write-flash 0x0 warhognode_c5.bin
+<span class="c"># add --no-stub if it stops at "stub flasher"</span></pre>
         </details>
       </div>
 
