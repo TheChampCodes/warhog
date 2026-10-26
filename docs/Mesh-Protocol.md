@@ -63,8 +63,11 @@ unconditionally (so `pig_proto.h` must be `#include`d even with dedup off) and f
 into their explicit-list scan path.
 
 ### Over-the-air node update (0x25–0x27)
-The Core can push new firmware to a **WarHogNode (XIAO C5)** over the same ESP-NOW link — no
-USB, no Wi-Fi infrastructure. Control flow:
+The Core can push new firmware to a worker node over the same ESP-NOW link — no USB, no Wi-Fi
+infrastructure. It works for both node chips: **WarHogNode (XIAO C5)** and the **C3 OLED node**.
+Firmware is per-chip, so the Core holds one image per chip (`/fw/warhognode_c5.ota.bin`,
+`/fw/esp32c3_oled.ota.bin`) and sends each node the one matching its chip — chosen from the
+node's band in the roster (dual-band → C5, 2.4 GHz-only → C3). Control flow:
 
 1. `OTA_BEGIN` (Core → node, resent every 400 ms) carries a random `session`, the image `size`,
    `chunks = ceil(size/192)` and the **SHA-256 of the whole image**. The node parks on the home

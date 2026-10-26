@@ -39,6 +39,7 @@ flasher) are *additive* and do not exist upstream at all.
 | **BLE** | none | full BLE wardriving, passive detectors, GATT bridges, advertisement floods | [BLE & Detectors](BLE-and-Detectors.md) |
 | **Security tools** | none (pure discovery) | Marauder port: capture/PCAP, beacon/deauth, deauth-detect, PMKID→Hashcat, WPS | [Marauder Security Tools](Marauder-Security-Tools.md) |
 | **Mesh scheduling** | static even channel-slicing | yield-driven adaptive suite (dedup, two-pass sweep, dynamic assign, core-iso, pair sched) | [Adaptive Scheduler](Adaptive-Scheduler.md) |
+| **Node firmware updates** | USB only | OTA over ESP-NOW (`PIG_MSG_OTA_BEGIN/DATA/ACK`): Core streams a chip-matched app image from SD with SHA-256 verify; C5 + C3 nodes | [Build & Flash](Build-and-Flash.md#updating-nodes-over-the-air-core--worker-node) |
 | **Companion apps** | ESP-NOW report to a Biscuit Core | **+ BLE/GATT bridges** to phone apps (Biscuit Manager, Wardrive Go) + a Core BLE record bridge | [Companion Apps & Bridges](Companion-Apps-and-Bridges.md) |
 | **Uploads** | WiGLE | WiGLE **+ WDGoWars + Wardrift**, chunked/non-blocking | [Data & Uploads](Data-and-Uploads.md) |
 | **Display/UI** | OLED text + static pig | touch page UI, color themes, PigWorld flocking, W550 sprite renderer, telemetry screens | [Display & UI](Display-and-UI.md) |

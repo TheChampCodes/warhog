@@ -43,3 +43,9 @@ scheduler header, sync those copies (see [Testing & Contributing](Testing-and-Co
   `default_reset` fails with *"Wrong boot mode detected (0x2a)"*). See [Build & Flash](Build-and-Flash.md).
 - ESP32-C3 is single-core → no FreeRTOS core affinity; `PIG_FEAT_CORE_ISO` there is a
   priority-only fallback.
+- **OTA partitions:** the worker-node builds use a two-app-slot layout so a Core can update
+  them over the air — `WarHogNode` (C5, 8 MB) uses `default_8MB.csv`, `c3_node` (C3, 4 MB)
+  uses `min_spiffs.csv` (~1.9 MB slots; the ~1.3 MB image fits with headroom). Adopting the
+  layout needs one USB reflash per node. The app offset (`0x10000`) and `otadata` (`0xe000`)
+  are unchanged, so the merged factory images flash the same way. See
+  [Build & Flash → OTA](Build-and-Flash.md#updating-nodes-over-the-air-core--worker-node).

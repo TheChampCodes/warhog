@@ -84,22 +84,34 @@ single flashable image with `esptool merge_bin`, assembles the web-flasher with 
 not in the default malloc pool); DMA-using subsystems (SD, Wi-Fi) draw from that internal
 pool, which is why internal-RAM headroom matters on a Core.
 
-## Updating nodes over the air (Core → WarHogNode)
-The XIAO C5 `warhognode_c5` build uses `default_8MB.csv` (two 3.2 MB app slots + `otadata`),
-so a Core can update it without USB. **A node still on the old `huge_app.csv` layout has no
-second slot — it needs one USB/web reflash first** (it answers `NODE HAS NO OTA SLOT`).
+## Updating nodes over the air (Core → worker node)
+A CYD/W550 Core can push a new app image to a worker node over ESP-NOW — no USB. Firmware is
+per-chip, so the Core keeps one image **per node chip** on its SD card and sends each node the
+one that matches it:
 
-1. Build or download the **app-only** image — not the merged one:
-   `WarHogNode/.pio/build/warhognode_c5/firmware.bin`, or `warhognode_c5.ota.bin` from the
-   deployed flasher's `firmware/` folder (CI publishes it next to each merged image).
-2. Copy it to the Core's SD card as `/fw/warhognode_c5.ota.bin`, then **reboot the Core**. The
-   Core reads the file **once at boot** into PSRAM (validating the ESP image header and chip id
-   and computing the SHA-256). In Core mode it runs with only ~10 KB of free internal RAM, where
-   SD reads silently return bad data, so replacing the file later has no effect until a reboot.
-3. On the Core: **Nodes → pick the node → UPDATE**. The card shows `Image ready: N KB` when idle,
-   then contacting → `UPDATING n%`; the node's LED blinks fast while it receives. If it says
-   `NO IMAGE ON SD` or `NOT A C5 IMAGE`, fix the file and reboot the Core.
-4. The node verifies the SHA-256, switches slot and reboots, then re-pairs with the Core.
+| Node | Chip | Image file (on the Core's SD, in `/fw/`) | OTA partition table |
+|---|---|---|---|
+| WarHogNode | ESP32-C5 (dual-band) | `warhognode_c5.ota.bin` | `default_8MB.csv` (2×3.2 MB) |
+| C3 OLED node | ESP32-C3 (2.4-only) | `esp32c3_oled.ota.bin` | `min_spiffs.csv` (2×~1.9 MB) |
+
+The Core picks the image by the node's band (dual-band roster entry → C5 image, 2.4 GHz-only →
+C3 image). **A node still on the old single-app layout (`huge_app.csv`) has no second slot — it
+needs one USB/web reflash to the new table first** (it answers `NODE HAS NO OTA SLOT`).
+
+1. Build or download the **app-only** image — not the merged one: `<project>/.pio/build/<env>/firmware.bin`,
+   or `<env>.ota.bin` from the deployed flasher's `firmware/` folder (CI publishes one next to
+   each merged image, for every board).
+2. Copy the image(s) for the node chips you run to the Core's SD card under `/fw/` with the exact
+   names above, then **reboot the Core**. The Core reads each file **once at boot** into PSRAM
+   (validating the ESP image header + chip id and computing the SHA-256). In Core mode it runs
+   with ~10 KB of free internal RAM, where SD reads silently return bad data, so replacing a file
+   later has no effect until a reboot. Keeping only the images you use saves PSRAM (~1.3 MB each).
+3. On the Core: **Nodes → pick the node → UPDATE**. The card shows the status; the node's LED
+   blinks fast while it receives. If it says `NO IMAGE ON SD`, `NO IMAGE FOR NODE` or
+   `NOT A C5/C3 IMAGE`, fix the matching `/fw/` file and reboot the Core. The idle Nodes screen
+   shows a per-chip summary (e.g. `C5:ok C3:-`).
+4. The node verifies the SHA-256, switches slot and reboots, then re-pairs with the Core. A
+   wrong-chip image is rejected by the node's own `esp_ota`/SHA check (it keeps its old firmware).
    `CANCEL` aborts; the node abandons an idle update after 15 s and resumes scanning.
 
 Protocol details and the security caveat: [Mesh Protocol](Mesh-Protocol.md#over-the-air-node-update-0x250x27).

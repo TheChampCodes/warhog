@@ -91,16 +91,17 @@ void coreSetNodeGroup(uint8_t nodeIdx, uint8_t group);
 void coreIdentifyNode(uint8_t nodeIdx);
 
 // ---- Over-the-air update of one worker node (PIG_MSG_OTA_*) --------------
-// Streams the node's plain app image to a WarHog C5 node over ESP-NOW. The node
-// verifies a SHA-256 of the whole image before it switches boot partition, so a
-// bad transfer leaves it running its old firmware. Non-blocking: coreOtaStart()
-// just arms it and coreModeTick() drives the transfer.
-// The image is the app-only build output (.pio/build/warhognode_c5/firmware.bin,
-// or warhognode_c5.ota.bin from the flasher/CI), NOT the merged factory image.
-// It is read off the SD card ONCE at boot (coreOtaPreload) into PSRAM: the Core
+// Streams a node's plain app image to a WarHog worker node over ESP-NOW. The
+// node verifies a SHA-256 of the whole image before it switches boot partition,
+// so a bad transfer leaves it running its old firmware. Non-blocking:
+// coreOtaStart() just arms it and coreModeTick() drives the transfer.
+// Firmware is per-chip, so the Core keeps one image per node chip and sends each
+// node the one that matches it: a dual-band node is a C5 (warhognode_c5.ota.bin),
+// a 2.4 GHz-only node is the C3 OLED node (esp32c3_oled.ota.bin). Each image is
+// the app-only build output (<env>.ota.bin from CI), NOT the merged factory image.
+// They are read off the SD card ONCE at boot (coreOtaPreload) into PSRAM: the Core
 // runs with ~10 KB of free internal RAM, where later SD reads are unreliable.
-// To push a new image: copy it to the SD card and reboot the Core.
-#define CORE_OTA_PATH "/fw/warhognode_c5.ota.bin"
+// To push new images: copy the *.ota.bin files to /fw/ on the SD card, reboot Core.
 enum class CoreOtaPhase : uint8_t { Idle, Starting, Sending, Done, Failed };
 struct CoreOtaStatus {
   CoreOtaPhase phase;

@@ -497,6 +497,29 @@ static const uint32_t OTA_STALL_MS         = 10000;   // no ack progress at all 
 static const uint32_t OTA_RESULT_SHOW_MS   = 15000;   // keep Done/Failed visible this long
 static const uint32_t OTA_MAX_IMAGE        = 0x330000; // size of an ota slot in default_8MB.csv
 static const uint16_t OTA_CHIP_ESP32C5     = 23;      // esp_image_header_t.chip_id for the C5
+static const uint16_t OTA_CHIP_ESP32C3     = 5;       // esp_image_header_t.chip_id for the C3
+
+// Preloaded node images, one per node chip. Firmware is chip-specific, so the
+// Core streams each node the image matching it: a dual-band roster entry is a C5
+// node, a 2.4 GHz-only one (band24Only) is the C3 OLED node. Each file is the
+// app-only *.ota.bin CI publishes for that board; put the ones you use in /fw/
+// on the Core's SD card. Missing files are simply unavailable (not an error until
+// a node of that chip is selected for update).
+struct CoreOtaImage {
+  uint16_t    chip;         // esp_image_header chip_id this file must carry
+  const char* path;         // /fw/<env>.ota.bin on the SD card
+  const char* label;        // short tag for status messages
+  uint8_t*    image;        // whole image in PSRAM, null if not loaded
+  uint32_t    size;
+  uint16_t    chunks;
+  uint8_t     sha[32];
+  char        failMsg[28];  // why this image is not loaded
+};
+static CoreOtaImage otaImages[] = {
+  { OTA_CHIP_ESP32C5, "/fw/warhognode_c5.ota.bin", "C5", nullptr, 0, 0, {0}, {0} },
+  { OTA_CHIP_ESP32C3, "/fw/esp32c3_oled.ota.bin",  "C3", nullptr, 0, 0, {0}, {0} },
+};
+static const int OTA_IMAGE_COUNT = (int)(sizeof(otaImages) / sizeof(otaImages[0]));
 
 static struct {
   CoreOtaPhase phase   = CoreOtaPhase::Idle;
@@ -533,18 +556,17 @@ static void coreOtaLoadFail(const char* m) {
   Serial.printf("[OTA] no image loaded: %s\n", m);
 }
 
-// Call once from setup(), right after the SD card is mounted and BEFORE the
-// radios / BLE start (see the note above). Validates the file and keeps it in PSRAM.
-void coreOtaPreload() {
-  if (ota.image) { heap_caps_free(ota.image); ota.image = nullptr; }
-  ota.size = 0;
-  ota.loadMsg[0] = 0;
-  if (!sdOk) { coreOtaLoadFail("NO SD CARD"); return; }
-  if (!SD.exists(CORE_OTA_PATH)) { coreOtaLoadFail("NO IMAGE ON SD"); return; }
-  File f = SD.open(CORE_OTA_PATH, FILE_READ);
-  if (!f) { coreOtaLoadFail("CANNOT OPEN IMAGE"); return; }
+// Load one node image file from SD into PSRAM, validating its chip. Records the
+// reason in im.failMsg if it is unavailable. A missing file is not an error here
+// (the chip may simply not be in this mesh) — it only matters at coreOtaStart().
+static void coreOtaLoadOne(CoreOtaImage& im) {
+  if (im.image) { heap_caps_free(im.image); im.image = nullptr; }
+  im.size = 0; im.chunks = 0; im.failMsg[0] = 0;
+  if (!SD.exists(im.path)) { strlcpy(im.failMsg, "NO IMAGE ON SD", sizeof(im.failMsg)); return; }
+  File f = SD.open(im.path, FILE_READ);
+  if (!f) { strlcpy(im.failMsg, "CANNOT OPEN IMAGE", sizeof(im.failMsg)); return; }
   uint32_t size = (uint32_t)f.size();
-  if (size < 1024 || size > OTA_MAX_IMAGE) { f.close(); coreOtaLoadFail("BAD IMAGE SIZE"); return; }
+  if (size < 1024 || size > OTA_MAX_IMAGE) { f.close(); strlcpy(im.failMsg, "BAD IMAGE SIZE", sizeof(im.failMsg)); return; }
 
   uint8_t* img = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   const size_t IO = 4096;   // SD_MMC DMA-reads into an internal buffer; copy out to PSRAM
@@ -553,7 +575,7 @@ void coreOtaPreload() {
     if (img) heap_caps_free(img);
     if (io)  heap_caps_free(io);
     f.close();
-    coreOtaLoadFail("OUT OF MEMORY");
+    strlcpy(im.failMsg, "OUT OF MEMORY", sizeof(im.failMsg));
     return;
   }
   uint32_t got = 0;
@@ -567,17 +589,38 @@ void coreOtaPreload() {
   }
   f.close();
   heap_caps_free(io);
-  if (got != size) { heap_caps_free(img); coreOtaLoadFail("SD READ ERROR"); return; }
+  if (got != size) { heap_caps_free(img); strlcpy(im.failMsg, "SD READ ERROR", sizeof(im.failMsg)); return; }
 
   uint16_t chip = (uint16_t)(img[12] | (img[13] << 8));
-  if (img[0] != 0xE9)             { heap_caps_free(img); coreOtaLoadFail("NOT AN APP IMAGE"); return; }
-  if (chip != OTA_CHIP_ESP32C5)   { heap_caps_free(img); coreOtaLoadFail("NOT A C5 IMAGE");   return; }
+  if (img[0] != 0xE9)      { heap_caps_free(img); strlcpy(im.failMsg, "NOT AN APP IMAGE", sizeof(im.failMsg)); return; }
+  if (chip != im.chip)     { heap_caps_free(img); snprintf(im.failMsg, sizeof(im.failMsg), "NOT A %s IMAGE", im.label); return; }
 
-  mbedtls_sha256(img, size, ota.sha, 0);
-  ota.image  = img;
-  ota.size   = size;
-  ota.chunks = (uint16_t)((size + PIG_OTA_CHUNK - 1) / PIG_OTA_CHUNK);
-  Serial.printf("[OTA] node image loaded: %lu bytes, %u chunks\n", (unsigned long)size, (unsigned)ota.chunks);
+  mbedtls_sha256(img, size, im.sha, 0);
+  im.image  = img;
+  im.size   = size;
+  im.chunks = (uint16_t)((size + PIG_OTA_CHUNK - 1) / PIG_OTA_CHUNK);
+  Serial.printf("[OTA] %s node image loaded: %lu bytes, %u chunks\n", im.label, (unsigned long)size, (unsigned)im.chunks);
+}
+
+// Call once from setup(), right after the SD card is mounted and BEFORE the
+// radios / BLE start (see the note above). Loads every node image present on SD
+// and leaves a short per-chip summary in ota.loadMsg for the UI.
+void coreOtaPreload() {
+  ota.loadMsg[0] = 0;
+  if (!sdOk) { coreOtaLoadFail("NO SD CARD"); return; }
+  int loaded = 0;
+  char summary[28] = {0};
+  for (int i = 0; i < OTA_IMAGE_COUNT; i++) {
+    coreOtaLoadOne(otaImages[i]);
+    if (otaImages[i].image) loaded++;
+    // "C5:ok C3:-" style, truncated to the loadMsg width.
+    char part[12];
+    snprintf(part, sizeof(part), "%s%s:%s", summary[0] ? " " : "", otaImages[i].label,
+             otaImages[i].image ? "ok" : "-");
+    strlcat(summary, part, sizeof(summary));
+  }
+  if (loaded == 0) coreOtaLoadFail("NO NODE IMAGE ON SD");
+  else             strlcpy(ota.loadMsg, summary, sizeof(ota.loadMsg));
 }
 
 static void coreOtaClose(CoreOtaPhase endPhase, const char* msg) {
@@ -607,7 +650,23 @@ bool coreOtaStart(uint8_t nodeIdx) {
   if (!meshCoreActive || nodeIdx >= CORE_MAX_NODES || !coreNodes[nodeIdx].active) {
     coreOtaSetMsg("NODE NOT CONNECTED"); return false;
   }
-  if (!ota.image) { coreOtaSetMsg(ota.loadMsg[0] ? ota.loadMsg : "NO IMAGE LOADED"); return false; }
+  // Pick the image matching this node's chip. The roster only records band
+  // (dual-band vs 2.4 GHz-only), which maps 1:1 to node chip in the current board
+  // set: dual-band = C5 worker, 2.4-only = C3 OLED node. If the node's chip were
+  // ever mismatched, the node's own esp_ota/SHA check rejects it (keeps old fw).
+  const uint16_t wantChip = coreNodes[nodeIdx].band24Only ? OTA_CHIP_ESP32C3 : OTA_CHIP_ESP32C5;
+  CoreOtaImage* im = nullptr;
+  for (int i = 0; i < OTA_IMAGE_COUNT; i++)
+    if (otaImages[i].chip == wantChip) { im = &otaImages[i]; break; }
+  if (!im || !im->image) {
+    coreOtaSetMsg(im && im->failMsg[0] ? im->failMsg : "NO IMAGE FOR NODE");
+    return false;
+  }
+  // Point the active transfer at the chosen preloaded image (not owned here).
+  ota.image  = im->image;
+  ota.size   = im->size;
+  ota.chunks = im->chunks;
+  memcpy(ota.sha, im->sha, 32);
 
   memcpy(ota.mac, coreNodes[nodeIdx].mac, 6);
   ota.session  = (uint8_t)(esp_random() & 0xFF);
