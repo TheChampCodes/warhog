@@ -51,6 +51,20 @@ python <.platformio>/packages/tool-esptoolpy/esptool.py \
 ```
 (The merged `firmware.factory.bin` at `0x0` avoids juggling per-partition offsets.)
 
+### ESP32-C5 (XIAO C5 Core / WarHogNode) — browser flasher won't open the port
+The XIAO C5 has **native USB-Serial/JTAG** with no auto-reset UART bridge (unlike the CYD's
+CH340), so the browser flasher often can't reset it into the bootloader while the node/Core
+firmware is running — the port fails to open or drops on connect. Put it in **download mode by
+hand first**: hold **BOOT**, tap **RESET**, release **BOOT**; the C5 re-enumerates in ROM
+download mode, then click Install and pick that port (tap RESET afterwards to run the new
+firmware). If the transfer still drops mid-flash, the esptool **stub** can break the C5's
+USB-JTAG link — flash from a terminal with `--no-stub` instead:
+```bash
+esptool --chip esp32c5 --no-stub write-flash 0x0 warhognode_c5.bin   # or xiao_c5.bin for the Core
+```
+Also note the C5's second-stage bootloader lives at **0x2000**, not 0x0 (CI builds the merged
+image accordingly); the merged `*.bin` still flashes at offset 0.
+
 ### Reading serial without rebooting the board
 Opening a serial monitor normally asserts DTR and **resets** the board. To attach without
 a reboot, construct the port with DTR/RTS deasserted *before* opening:
