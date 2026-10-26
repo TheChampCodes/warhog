@@ -90,6 +90,32 @@ void coreSetNodeGroup(uint8_t nodeIdx, uint8_t group);
 // which physical board a roster entry corresponds to. Called from the Nodes UI.
 void coreIdentifyNode(uint8_t nodeIdx);
 
+// ---- Over-the-air update of one worker node (PIG_MSG_OTA_*) --------------
+// Streams the node's plain app image to a WarHog C5 node over ESP-NOW. The node
+// verifies a SHA-256 of the whole image before it switches boot partition, so a
+// bad transfer leaves it running its old firmware. Non-blocking: coreOtaStart()
+// just arms it and coreModeTick() drives the transfer.
+// The image is the app-only build output (.pio/build/warhognode_c5/firmware.bin,
+// or warhognode_c5.ota.bin from the flasher/CI), NOT the merged factory image.
+// It is read off the SD card ONCE at boot (coreOtaPreload) into PSRAM: the Core
+// runs with ~10 KB of free internal RAM, where later SD reads are unreliable.
+// To push a new image: copy it to the SD card and reboot the Core.
+#define CORE_OTA_PATH "/fw/warhognode_c5.ota.bin"
+enum class CoreOtaPhase : uint8_t { Idle, Starting, Sending, Done, Failed };
+struct CoreOtaStatus {
+  CoreOtaPhase phase;
+  int8_t       nodeIdx;      // roster index being updated, -1 if none
+  uint32_t     imageBytes;   // size of the image loaded at boot, 0 = none
+  uint32_t     sentBytes;    // bytes acknowledged by the node so far
+  uint32_t     totalBytes;
+  char         msg[28];      // short human-readable result / failure reason
+  char         loadMsg[28];  // why no image was loaded at boot
+};
+bool          coreOtaStart(uint8_t nodeIdx);   // false if it could not start (see coreOtaStatus().msg)
+void          coreOtaAbort();
+CoreOtaStatus coreOtaStatus();
+void          coreOtaPreload();                // call once at boot, right after the SD card mounts
+
 // Count active worker nodes currently in a given sub-cluster (for the UI).
 uint8_t coreGroupMemberCount(uint8_t group);
 
