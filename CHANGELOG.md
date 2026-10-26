@@ -7,6 +7,17 @@ the base firmware history.
 
 ## Unreleased
 
+### Update mesh nodes over the air from the CYD Core
+New ESP-NOW messages `PIG_MSG_OTA_BEGIN/DATA/ACK` (0x25–0x27) let the Core stream a node's
+app image (`/fw/<node-env>.ota.bin` on the SD card, staged into PSRAM at Core boot) to a
+worker node: select the node on the Core's Nodes screen and tap **UPDATE**. Go-back-N transfer
+with a whole-image SHA-256 check before the node switches slot (a bad transfer leaves the old
+firmware running). The Core sends each node the image matching its chip (XIAO C5 →
+`warhognode_c5.ota.bin`, ESP32-C3 OLED → `esp32c3_oled.ota.bin`). OTA-capable nodes move to a
+two-app-slot partition table — **each node needs one USB/web reflash to gain OTA ability**; the
+app-only `*.ota.bin` is now also published by CI for every board. A node accepts updates only
+from its paired Core MAC (no signature — see the Mesh Protocol doc).
+
 ### Phone apps now follow solo wardriving, not just mesh Core mode
 The BLE phone bridge used to come up only in mesh **Core** mode, so a device wardriving on its
 own was invisible to the app even though every piece of plumbing was already there. All three
