@@ -214,7 +214,6 @@ void setup() {
   networksFound5G = 0;
 
   sdOk = initSd();
-  coreOtaPreload();   // stage the node-update image in PSRAM while there is still RAM for SD reads
 
   if (sdOk) {
     loadConfigFromSD();

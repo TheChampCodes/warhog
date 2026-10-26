@@ -13,10 +13,7 @@ enum PigMsgType : uint8_t {
   PIG_MSG_DELTA_BATCH = 0x21,  // compact deltas / repeat-summaries
   PIG_MSG_YIELD_HB    = 0x22,  // heartbeat + per-channel yield counters
   PIG_MSG_ADMIN_EXT   = 0x23,  // extended assignment (explicit channel list + knobs)
-  PIG_MSG_IDENTIFY    = 0x24,  // Core -> node: blink your LED so a human can find you
-  PIG_MSG_OTA_BEGIN   = 0x25,  // Core -> node: start a firmware update (size + SHA-256)
-  PIG_MSG_OTA_DATA    = 0x26,  // Core -> node: one in-order firmware chunk
-  PIG_MSG_OTA_ACK     = 0x27   // node -> Core: cumulative ack / status for an update
+  PIG_MSG_IDENTIFY    = 0x24   // Core -> node: blink your LED so a human can find you
 };
 
 // observation flags
@@ -91,57 +88,6 @@ typedef struct __attribute__((packed)) {
   uint8_t  type;            // PIG_MSG_IDENTIFY (0x24)
   uint8_t  seconds;         // blink duration in seconds (0 = node default)
 } pig_identify_t;           // 6 B on the wire
-
-// ---- Over-the-air node update (Core -> node, ESP-NOW) ----------------------
-// The Core streams a node's app image (the plain ota_0 image, NOT the merged
-// factory image) in PIG_OTA_CHUNK-byte pieces. Go-back-N: the node accepts only
-// the next in-order chunk and acks cumulatively; the Core keeps a small window in
-// flight and resends from the last ack on a timeout. The whole image is checked
-// against the SHA-256 in OTA_BEGIN before the node switches boot partition.
-// WarHog<->WarHog only; legacy nodes ignore the unknown types. Accepted by a node
-// only from its paired Core's MAC.
-#define PIG_OTA_CHUNK  192   // payload bytes per OTA_DATA frame (frame <= 201 B < 250 B ESP-NOW max)
-#define PIG_OTA_WINDOW 4     // chunks the Core keeps in flight
-
-enum PigOtaStatus : uint8_t {
-  PIG_OTA_ST_READY     = 0,  // OTA_BEGIN accepted; send chunk 0
-  PIG_OTA_ST_OK        = 1,  // progress: `next` = chunks written so far
-  PIG_OTA_ST_DONE      = 2,  // image verified + boot partition switched; node is rebooting
-  PIG_OTA_ST_ERR_SPACE = 3,  // image does not fit / no OTA partition (flash layout has no ota slot)
-  PIG_OTA_ST_ERR_WRITE = 4,  // flash write failed
-  PIG_OTA_ST_ERR_SHA   = 5,  // SHA-256 mismatch (update discarded, node keeps running)
-  PIG_OTA_ST_ERR_ARGS  = 6   // bad size / chunk count
-};
-
-typedef struct __attribute__((packed)) {
-  char     magic[4];        // mesh magic — sender fills (this fork: "ENOW")
-  uint8_t  type;            // PIG_MSG_OTA_BEGIN (0x25)
-  uint8_t  session;         // update session id (changes every update)
-  uint32_t size;            // image size in bytes
-  uint16_t chunks;          // ceil(size / PIG_OTA_CHUNK)
-  uint8_t  sha256[32];      // SHA-256 of the whole image
-} pig_ota_begin_t;          // 44 B on the wire
-
-typedef struct __attribute__((packed)) {
-  char     magic[4];
-  uint8_t  type;            // PIG_MSG_OTA_DATA (0x26)
-  uint8_t  session;
-  uint16_t seq;             // chunk index, 0-based
-  uint8_t  len;             // payload bytes in data[] (1..PIG_OTA_CHUNK)
-  uint8_t  data[PIG_OTA_CHUNK];
-} pig_ota_data_t;           // send offsetof(pig_ota_data_t, data) + len bytes
-
-typedef struct __attribute__((packed)) {
-  char     magic[4];
-  uint8_t  type;            // PIG_MSG_OTA_ACK (0x27)
-  uint8_t  session;
-  uint16_t next;            // next chunk index the node expects (= chunks written)
-  uint8_t  status;          // PigOtaStatus
-} pig_ota_ack_t;            // 9 B on the wire
-
-static_assert(sizeof(pig_ota_begin_t) == 44, "pig_ota_begin_t must be 44B");
-static_assert(sizeof(pig_ota_ack_t)   == 9,  "pig_ota_ack_t must be 9B");
-static_assert(sizeof(pig_ota_data_t)  <= 250, "pig_ota_data_t must fit one ESP-NOW frame");
 
 // CRC16-CCITT (0x1021, init 0xFFFF, MSB-first, no reflect, no xorout).
 // Check value: crc16_ccitt("123456789", 9) == 0x29B1.

@@ -773,18 +773,6 @@ void ScreenUI::handleNodeDetailTap(int16_t x, int16_t contentY) {
     return;
   }
 
-  // UPDATE / CANCEL button (drawn at x160..224, y235..257): push firmware over the air.
-  if (contentY >= 233 && contentY <= 259 && x >= 160 && x <= 224) {
-    const CoreOtaStatus ota = coreOtaStatus();
-    const bool busy = (ota.nodeIdx == selectedNode) &&
-                      (ota.phase == CoreOtaPhase::Starting ||
-                       ota.phase == CoreOtaPhase::Sending);
-    if (busy) coreOtaAbort();
-    else      coreOtaStart(selectedNode);
-    redraw = true;
-    return;
-  }
-
   // Sub-cluster -/+  (buttons drawn at y 122..162).
   if (contentY >= 122 && contentY <= 162) {
     const uint8_t g = coreNodes[selectedNode].group;
@@ -1705,38 +1693,11 @@ void ScreenUI::drawNodeDetail() {
   frame.setCursor(16, 178 + 30);
   frame.print(chans);
 
-  // Firmware update card: pushes the node image staged at boot from
-  // /fw/warhognode_c5.ota.bin over ESP-NOW (see MeshNode.cpp coreOta*). Live progress.
-  const CoreOtaStatus ota = coreOtaStatus();
-  const bool mine = (ota.nodeIdx == selectedNode) && ota.phase != CoreOtaPhase::Idle;
-  const bool busy = mine && (ota.phase == CoreOtaPhase::Starting ||
-                             ota.phase == CoreOtaPhase::Sending);
-  drawCard(8, 232, 224, 28, "");
-  char line[34];
-  uint16_t lineCol = C_MUTED;
-  if (!mine) {
-    if (ota.imageBytes) snprintf(line, sizeof(line), "Image ready: %lu KB", (unsigned long)(ota.imageBytes / 1024));
-    else                snprintf(line, sizeof(line), "%s", ota.loadMsg[0] ? ota.loadMsg : "No node image");
-  } else if (ota.phase == CoreOtaPhase::Starting) {
-    snprintf(line, sizeof(line), "Contacting node...");
-    lineCol = C_TEXT;
-  } else if (ota.phase == CoreOtaPhase::Sending) {
-    unsigned pct = ota.totalBytes ? (unsigned)((uint64_t)ota.sentBytes * 100u / ota.totalBytes) : 0u;
-    snprintf(line, sizeof(line), "UPDATING %u%%", pct);
-    lineCol = C_ACCENT;
-  } else {
-    snprintf(line, sizeof(line), "%s", ota.msg);
-    lineCol = (ota.phase == CoreOtaPhase::Done) ? C_ACCENT : C_DANGER;
-  }
-  frame.setTextColor(lineCol, C_CARD);
-  frame.setCursor(14, 242);
-  frame.print(line);
-  const uint16_t btnCol = busy ? C_DANGER : C_ACCENT;
-  frame.fillRoundRect(160, 235, 64, 22, 5, btnCol);
-  frame.setTextDatum(MC_DATUM);
-  frame.setTextColor(C_BG, btnCol);
-  frame.drawString(busy ? "CANCEL" : "UPDATE", 192, 246, 1);
-  frame.setTextDatum(TL_DATUM);
+  frame.setTextColor(C_MUTED, C_BG);
+  frame.setCursor(10, 236);
+  frame.print("Members of a cluster never scan the");
+  frame.setCursor(10, 248);
+  frame.print("same channel at once.");
 }
 
 // Saved wardriving profiles: a built-in DEFAULT plus MESH_NUM_PROFILES slots.
