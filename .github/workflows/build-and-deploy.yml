@@ -66,11 +66,20 @@ jobs:
           BOOT_APP0="$(find "$HOME/.platformio/packages" -name boot_app0.bin | head -n1)"
           if [ -z "$BOOT_APP0" ]; then echo "boot_app0.bin not found"; exit 1; fi
           mkdir -p merged
-          # All boards here are ESP32-S3/C3/C5 (unified bootloader at 0x0).
+          # Second-stage bootloader offset is chip-specific: 0x0 on ESP32-S3/C3/C6,
+          # but 0x2000 on ESP32-C5 (its ROM boots from 0x2000, so a bootloader at
+          # 0x0 gives "invalid header" and a boot loop). --target-offset 0x0 keeps
+          # the merged image starting at flash offset 0 (0xFF-padded), so the
+          # flasher manifests can keep writing it at offset 0 for every chip.
+          case "${{ matrix.chip }}" in
+            esp32c5) BOOT_OFF=0x2000 ;;
+            *)       BOOT_OFF=0x0 ;;
+          esac
           python -m esptool --chip "${{ matrix.chip }}" merge_bin \
             -o "merged/${{ matrix.env }}.bin" \
+            --target-offset 0x0 \
             --flash_mode keep --flash_freq keep --flash_size keep \
-            0x0     "$BUILD/bootloader.bin" \
+            "$BOOT_OFF" "$BUILD/bootloader.bin" \
             0x8000  "$BUILD/partitions.bin" \
             0xe000  "$BOOT_APP0" \
             0x10000 "$BUILD/firmware.bin"
