@@ -97,7 +97,14 @@ async function flashC5(btn) {
     setStatus(card, "Done. The C5 is running the new firmware.", "ok");
   } catch (err) {
     const m = (err && err.message) ? err.message : String(err);
-    setStatus(card, "Failed: " + m + ". Try the terminal steps below.", "err");
+    // "Failed to open serial port" after a port is picked means the port is held
+    // by something else (another serial app, or another flasher tab) — a very
+    // different fix from a chip/firmware failure, so say so.
+    const portBusy = /failed to open/i.test(m) || /already open/i.test(m) || /in use/i.test(m);
+    const hint = portBusy
+      ? "the port is in use. Close other serial apps / flasher tabs, unplug & replug the board, reload this page, then retry."
+      : "try the terminal steps below.";
+    setStatus(card, "Failed: " + m + " — " + hint, "err");
   } finally {
     try { if (transport) await transport.disconnect(); } catch (_) {}
     btn.disabled = false;
