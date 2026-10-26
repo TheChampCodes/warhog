@@ -248,16 +248,13 @@
           </div>
         </div>
         <p class="fwnote" data-fwnote></p>
-        <esp-web-install-button manifest="manifests/xiao_c5.json">
-          <button class="flash" slot="activate">&#9654; Install (may fail)</button>
-          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
-        </esp-web-install-button>
+        <button type="button" class="flash" data-c5flash>&#9654; Install</button>
         <div class="alt">
           <a href="firmware/xiao_c5.bin" download data-dl>Download .bin</a>
           <a href="manifests/xiao_c5.json" data-mf>manifest</a>
         </div>
-        <details open><summary>C5 won&rsquo;t open over serial? Known flasher bug &mdash; use a terminal</summary>
-<p class="desc" style="margin:4px 0 8px">Newer XIAO C5 silicon (rev v1.2) isn&rsquo;t recognised by the esptool-js this browser flasher bundles (esp-web-tools 10.4.0 / esptool-js 0.6), so the connection fails before it can flash &mdash; not a BOOT-button or firmware issue. The S3 CYD is a different chip, so it works. Fixed upstream in esptool-js 0.7.0, which no esp-web-tools release ships yet. Until then, flash the downloaded <b>.bin</b> from a terminal with up-to-date esptool:</p>
+        <details open><summary>Browser flash failing? Terminal fallback</summary>
+<p class="desc" style="margin:4px 0 8px">The Install button above uses <b>esptool-js 0.7.0</b>, which detects newer C5 silicon (rev v1.2) that the standard browser flasher (esp-web-tools 10.4.0) can&rsquo;t. If it still fails, flash the downloaded <b>.bin</b> from a terminal:</p>
 <pre><span class="c"># one-time: esptool v5+ supports C5 rev v1.2</span>
 pip install -U esptool
 <span class="c"># flash the merged .bin at offset 0:</span>
@@ -283,16 +280,13 @@ esptool --chip esp32c5 write-flash 0x0 xiao_c5.bin
           </div>
         </div>
         <p class="fwnote" data-fwnote></p>
-        <esp-web-install-button manifest="manifests/warhognode_c5.json">
-          <button class="flash" slot="activate">&#9654; Install (may fail)</button>
-          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
-        </esp-web-install-button>
+        <button type="button" class="flash" data-c5flash>&#9654; Install</button>
         <div class="alt">
           <a href="firmware/warhognode_c5.bin" download data-dl>Download .bin</a>
           <a href="manifests/warhognode_c5.json" data-mf>manifest</a>
         </div>
-        <details open><summary>C5 won&rsquo;t open over serial? Known flasher bug &mdash; use a terminal</summary>
-<p class="desc" style="margin:4px 0 8px">Newer XIAO C5 silicon (rev v1.2) isn&rsquo;t recognised by the esptool-js this browser flasher bundles (esp-web-tools 10.4.0 / esptool-js 0.6), so the connection fails before it can flash &mdash; not a BOOT-button or firmware issue. The S3 CYD is a different chip, so it works. Fixed upstream in esptool-js 0.7.0, which no esp-web-tools release ships yet. Until then, flash the downloaded <b>.bin</b> from a terminal with up-to-date esptool:</p>
+        <details open><summary>Browser flash failing? Terminal fallback</summary>
+<p class="desc" style="margin:4px 0 8px">The Install button above uses <b>esptool-js 0.7.0</b>, which detects newer C5 silicon (rev v1.2) that the standard browser flasher (esp-web-tools 10.4.0) can&rsquo;t. If it still fails, flash the downloaded <b>.bin</b> from a terminal:</p>
 <pre><span class="c"># one-time: esptool v5+ supports C5 rev v1.2</span>
 pip install -U esptool
 <span class="c"># flash the merged .bin at offset 0:</span>
@@ -306,20 +300,18 @@ esptool --chip esp32c5 write-flash 0x0 warhognode_c5.bin
         <h2>LilyGo T-Dongle C5</h2>
         <div class="chips"><span class="chip a">ESP32-C5</span><span class="chip">8 MB</span><span class="chip">0.96&Prime; TFT</span><span class="chip">official</span></div>
         <p class="desc">USB-A dongle &mdash; 0.96&Prime; ST7735 TFT, APA102 LED, GPS, SD, dual-band. Flashes the official Piglet T-Dongle build; the fork tracks upstream for this board.</p>
-        <esp-web-install-button manifest="manifests/tdongle_c5-ham.json">
-          <button class="flash" slot="activate">&#9654; Install (may fail)</button>
-          <span slot="unsupported" class="unsupported">Open in Chrome or Edge to flash.</span>
-        </esp-web-install-button>
+        <button type="button" class="flash" data-c5flash
+                data-c5bin="https://github.com/Hamspiced/piglet/releases/latest/download/TDongleC5_Piglet.ino.merged.bin">&#9654; Install</button>
         <div class="alt">
           <a href="https://github.com/Hamspiced/piglet/releases/latest/download/TDongleC5_Piglet.ino.merged.bin" download>Download .bin</a>
           <a href="manifests/tdongle_c5-ham.json">manifest</a>
         </div>
-        <details open><summary>C5 note &mdash; use --no-stub if the browser fails</summary>
-<pre><span class="c"># C5 USB-Serial/JTAG drops on stub;</span>
-<span class="c"># flash from a terminal instead:</span>
-esptool --chip esp32c5 \
-  --no-stub write-flash \
-  0x0 TDongleC5_Piglet.ino.merged.bin</pre>
+        <details open><summary>Browser flash failing? Terminal fallback</summary>
+<p class="desc" style="margin:4px 0 8px">The Install button here uses esptool-js 0.7.0 (which supports C5 rev v1.2). If it still fails, flash the downloaded <b>.bin</b> from a terminal with up-to-date esptool:</p>
+<pre><span class="c"># one-time: esptool v5+ supports C5 rev v1.2</span>
+pip install -U esptool
+esptool --chip esp32c5 write-flash 0x0 TDongleC5_Piglet.ino.merged.bin
+<span class="c"># add --no-stub if it stops at "stub flasher"</span></pre>
         </details>
       </div>
 
@@ -367,16 +359,17 @@ esptool --chip esp32c5 \
     };
     document.querySelectorAll('.board[data-fw-dual]').forEach(function(board){
       var seg  = board.querySelector('.fwtoggle');
-      var btn  = board.querySelector('esp-web-install-button');
+      var btn  = board.querySelector('esp-web-install-button');   // null on C5 cards (they use c5flash.js)
       var dl   = board.querySelector('[data-dl]');
       var mf   = board.querySelector('[data-mf]');
       var note = board.querySelector('[data-fwnote]');
-      if(!seg || !btn) return;
+      if(!seg) return;
 
       function apply(src){
         var manifest = board.dataset['manifest' + src.charAt(0).toUpperCase() + src.slice(1)];
         var bin      = board.dataset['bin' + src.charAt(0).toUpperCase() + src.slice(1)];
-        if(manifest){ btn.setAttribute('manifest', manifest); if(mf) mf.setAttribute('href', manifest); }
+        if(manifest && btn) btn.setAttribute('manifest', manifest);
+        if(manifest && mf)  mf.setAttribute('href', manifest);
         if(bin && dl) dl.setAttribute('href', bin);
         seg.querySelectorAll('button[data-fw]').forEach(function(b){
           b.classList.toggle('on', b.dataset.fw === src);
@@ -392,6 +385,11 @@ esptool --chip esp32c5 \
       apply('fork'); // default
     });
   })();
+</script>
+<script type="module">
+  // C5 cards flash via esptool-js 0.7.0 (esp-web-tools 10.4.0 can't detect C5 rev v1.2).
+  import { mountC5Flash } from './c5flash.js';
+  mountC5Flash();
 </script>
 </body>
 </html>
