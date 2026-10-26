@@ -16,6 +16,8 @@
 #include "pig_dwell.h"   // Scheduler Phase 2: adaptive dwell + DFS passive (flag PIG_FEAT_ADAPTIVE_DWELL, default OFF)
 #include "pig_proto.h"   // Scheduler Phase 3: PIG_MSG_ADMIN_EXT explicit channel list (worker parse)
 #include "SpiBusLock.h"  // Scheduler Phase 4: recursive mutex for the shared SD+TFT SPI bus
+#include "esp_heap_caps.h"
+#include "mbedtls/sha256.h"   // OTA: whole-image SHA-256 sent to the node in OTA_BEGIN
 
 // ================================================================
 //  Scheduler Phase 4 (Step 1) — move Core-mode per-record SD logging off the
@@ -471,6 +473,268 @@ void coreIdentifyNode(uint8_t nodeIdx) {
   }
 }
 
+
+// ================================================================
+//  OTA update of a worker node (PIG_MSG_OTA_BEGIN / _DATA / _ACK)
+// ================================================================
+// The update image is read off the SD card ONCE, at boot (coreOtaPreload), into
+// PSRAM and streamed from there. Reading the SD card later, while Core mode is
+// running, is not reliable on this board: the Core runs with only ~10 KB of free
+// internal RAM (BLE bridge + Wi-Fi) and SD_MMC reads then silently return stale
+// data. So to push a new image: put it on the SD card and reboot the Core.
+//
+// State machine driven from coreModeTick() via coreOtaTick():
+//   Starting — resend OTA_BEGIN until the node answers READY
+//   Sending  — go-back-N: keep PIG_OTA_WINDOW chunks in flight, advance on the
+//              node's cumulative acks, rewind to the last ack on a timeout
+//   Done / Failed — result shown on the node-detail screen for a while
+// ACKs arrive in the ESP-NOW callback and are only recorded there (volatile
+// flags); all sends happen from the loop.
+static const uint32_t OTA_BEGIN_RETRY_MS   = 400;     // resend OTA_BEGIN this often
+static const uint32_t OTA_START_TIMEOUT_MS = 20000;   // node never answered
+static const uint32_t OTA_ACK_TIMEOUT_MS   = 250;     // no ack progress -> resend window
+static const uint32_t OTA_STALL_MS         = 10000;   // no ack progress at all -> give up
+static const uint32_t OTA_RESULT_SHOW_MS   = 15000;   // keep Done/Failed visible this long
+static const uint32_t OTA_MAX_IMAGE        = 0x330000; // size of an ota slot in default_8MB.csv
+static const uint16_t OTA_CHIP_ESP32C5     = 23;      // esp_image_header_t.chip_id for the C5
+
+static struct {
+  CoreOtaPhase phase   = CoreOtaPhase::Idle;
+  int8_t       node    = -1;
+  uint8_t      mac[6]  = {0};
+  uint8_t      session = 0;
+  uint8_t*     image   = nullptr;   // whole node image, in PSRAM (null = none loaded)
+  uint32_t     size    = 0;
+  uint16_t     chunks  = 0;
+  uint8_t      sha[32] = {0};
+  char         loadMsg[28] = {0};   // why no image is loaded
+  uint16_t     base    = 0;         // chunks the node has acknowledged
+  uint16_t     nextSend = 0;
+  uint32_t     startMs = 0, lastBeginMs = 0, ackMs = 0, progressMs = 0, endMs = 0;
+  char         msg[28] = {0};
+} ota;
+
+// Written by the ESP-NOW callback, consumed by coreOtaTick().
+static volatile bool     otaGotReady  = false;
+static volatile uint16_t otaAckNext   = 0;
+static volatile uint8_t  otaFinalStat = 0xFF;   // PIG_OTA_ST_DONE / PIG_OTA_ST_ERR_*; 0xFF = none yet
+
+static bool coreOtaBusy() {
+  return ota.phase == CoreOtaPhase::Starting || ota.phase == CoreOtaPhase::Sending;
+}
+
+static void coreOtaSetMsg(const char* m) {
+  strlcpy(ota.msg, m, sizeof(ota.msg));
+  if (m[0]) Serial.printf("[OTA] %s\n", m);
+}
+
+static void coreOtaLoadFail(const char* m) {
+  strlcpy(ota.loadMsg, m, sizeof(ota.loadMsg));
+  Serial.printf("[OTA] no image loaded: %s\n", m);
+}
+
+// Call once from setup(), right after the SD card is mounted and BEFORE the
+// radios / BLE start (see the note above). Validates the file and keeps it in PSRAM.
+void coreOtaPreload() {
+  if (ota.image) { heap_caps_free(ota.image); ota.image = nullptr; }
+  ota.size = 0;
+  ota.loadMsg[0] = 0;
+  if (!sdOk) { coreOtaLoadFail("NO SD CARD"); return; }
+  if (!SD.exists(CORE_OTA_PATH)) { coreOtaLoadFail("NO IMAGE ON SD"); return; }
+  File f = SD.open(CORE_OTA_PATH, FILE_READ);
+  if (!f) { coreOtaLoadFail("CANNOT OPEN IMAGE"); return; }
+  uint32_t size = (uint32_t)f.size();
+  if (size < 1024 || size > OTA_MAX_IMAGE) { f.close(); coreOtaLoadFail("BAD IMAGE SIZE"); return; }
+
+  uint8_t* img = (uint8_t*)heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  const size_t IO = 4096;   // SD_MMC DMA-reads into an internal buffer; copy out to PSRAM
+  uint8_t* io = (uint8_t*)heap_caps_malloc(IO, MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+  if (!img || !io) {
+    if (img) heap_caps_free(img);
+    if (io)  heap_caps_free(io);
+    f.close();
+    coreOtaLoadFail("OUT OF MEMORY");
+    return;
+  }
+  uint32_t got = 0;
+  while (got < size) {
+    uint32_t want = size - got;
+    if (want > IO) want = IO;
+    int n = f.read(io, want);
+    if (n <= 0) break;
+    memcpy(img + got, io, (size_t)n);
+    got += (uint32_t)n;
+  }
+  f.close();
+  heap_caps_free(io);
+  if (got != size) { heap_caps_free(img); coreOtaLoadFail("SD READ ERROR"); return; }
+
+  uint16_t chip = (uint16_t)(img[12] | (img[13] << 8));
+  if (img[0] != 0xE9)             { heap_caps_free(img); coreOtaLoadFail("NOT AN APP IMAGE"); return; }
+  if (chip != OTA_CHIP_ESP32C5)   { heap_caps_free(img); coreOtaLoadFail("NOT A C5 IMAGE");   return; }
+
+  mbedtls_sha256(img, size, ota.sha, 0);
+  ota.image  = img;
+  ota.size   = size;
+  ota.chunks = (uint16_t)((size + PIG_OTA_CHUNK - 1) / PIG_OTA_CHUNK);
+  Serial.printf("[OTA] node image loaded: %lu bytes, %u chunks\n", (unsigned long)size, (unsigned)ota.chunks);
+}
+
+static void coreOtaClose(CoreOtaPhase endPhase, const char* msg) {
+  ota.phase = endPhase;
+  ota.endMs = millis();
+  coreOtaSetMsg(msg);
+}
+
+// ESP-NOW callback context: record only, no sends.
+static void coreOtaOnAck(const uint8_t* mac, const uint8_t* data, int len) {
+  if (len < (int)sizeof(pig_ota_ack_t)) return;
+  if (ota.phase != CoreOtaPhase::Starting && ota.phase != CoreOtaPhase::Sending) return;
+  if (memcmp(mac, ota.mac, 6) != 0) return;
+  const pig_ota_ack_t* a = (const pig_ota_ack_t*)data;
+  if (a->session != ota.session) return;
+  if (ota.node >= 0) coreNodes[ota.node].lastHbMs = millis();   // an ack proves the node is alive
+  if (a->status == PIG_OTA_ST_READY) otaGotReady = true;
+  else if (a->status >= PIG_OTA_ST_DONE) otaFinalStat = a->status;
+  if (a->next > otaAckNext) otaAckNext = a->next;
+}
+
+bool coreOtaStart(uint8_t nodeIdx) {
+  if (coreOtaBusy()) return false;
+  ota.node  = (int8_t)nodeIdx;
+  ota.phase = CoreOtaPhase::Failed;      // until proven otherwise; keeps msg visible
+  ota.endMs = millis();
+  if (!meshCoreActive || nodeIdx >= CORE_MAX_NODES || !coreNodes[nodeIdx].active) {
+    coreOtaSetMsg("NODE NOT CONNECTED"); return false;
+  }
+  if (!ota.image) { coreOtaSetMsg(ota.loadMsg[0] ? ota.loadMsg : "NO IMAGE LOADED"); return false; }
+
+  memcpy(ota.mac, coreNodes[nodeIdx].mac, 6);
+  ota.session  = (uint8_t)(esp_random() & 0xFF);
+  ota.base     = ota.nextSend = 0;
+  otaGotReady  = false;
+  otaAckNext   = 0;
+  otaFinalStat = 0xFF;
+  coreOtaSetMsg("");
+  ota.startMs     = millis();
+  ota.lastBeginMs = 0;
+  ota.phase       = CoreOtaPhase::Starting;
+  Serial.printf("[OTA] node %u: %lu bytes, %u chunks, session %u\n", (unsigned)nodeIdx,
+                (unsigned long)ota.size, (unsigned)ota.chunks, (unsigned)ota.session);
+  return true;
+}
+
+void coreOtaAbort() {
+  if (!coreOtaBusy()) return;
+  coreOtaClose(CoreOtaPhase::Failed, "CANCELLED");   // the node abandons an idle update after 15 s
+}
+
+CoreOtaStatus coreOtaStatus() {
+  CoreOtaStatus st = {};
+  st.phase      = ota.phase;
+  st.nodeIdx    = ota.node;
+  st.imageBytes = ota.image ? ota.size : 0;
+  st.totalBytes = ota.size;
+  uint32_t b    = (uint32_t)ota.base * PIG_OTA_CHUNK;
+  st.sentBytes  = b > ota.size ? ota.size : b;
+  strlcpy(st.msg, ota.msg, sizeof(st.msg));
+  strlcpy(st.loadMsg, ota.loadMsg, sizeof(st.loadMsg));
+  return st;
+}
+
+static bool coreOtaSendBegin() {
+  pig_ota_begin_t b = {};
+  memcpy(b.magic, JCMK_MAGIC, 4);
+  b.type    = PIG_MSG_OTA_BEGIN;
+  b.session = ota.session;
+  b.size    = ota.size;
+  b.chunks  = ota.chunks;
+  memcpy(b.sha256, ota.sha, 32);
+  return esp_now_send(ota.mac, (uint8_t*)&b, sizeof(b)) == ESP_OK;
+}
+
+// Returns false if the chunk could not be sent right now (retry next tick).
+static bool coreOtaSendChunk(uint16_t seq) {
+  pig_ota_data_t d;
+  memcpy(d.magic, JCMK_MAGIC, 4);
+  d.type    = PIG_MSG_OTA_DATA;
+  d.session = ota.session;
+  d.seq     = seq;
+  uint32_t off = (uint32_t)seq * PIG_OTA_CHUNK;
+  uint32_t n   = ota.size - off;
+  if (n > PIG_OTA_CHUNK) n = PIG_OTA_CHUNK;
+  memcpy(d.data, ota.image + off, n);
+  d.len = (uint8_t)n;
+  return esp_now_send(ota.mac, (uint8_t*)&d, offsetof(pig_ota_data_t, data) + n) == ESP_OK;
+}
+
+static const char* coreOtaErrText(uint8_t st) {
+  switch (st) {
+    case PIG_OTA_ST_ERR_SPACE: return "NODE HAS NO OTA SLOT";   // old flash layout: needs one USB reflash
+    case PIG_OTA_ST_ERR_WRITE: return "NODE FLASH WRITE ERR";
+    case PIG_OTA_ST_ERR_SHA:   return "NODE: SHA MISMATCH";
+    default:                   return "NODE REJECTED UPDATE";
+  }
+}
+
+static void coreOtaTick() {
+  uint32_t now = millis();
+  if (!coreOtaBusy()) {
+    if ((ota.phase == CoreOtaPhase::Done || ota.phase == CoreOtaPhase::Failed) &&
+        now - ota.endMs > OTA_RESULT_SHOW_MS) {
+      ota.phase = CoreOtaPhase::Idle;
+      ota.node  = -1;
+    }
+    return;
+  }
+  if (ota.node < 0 || !coreNodes[ota.node].active) {
+    coreOtaClose(CoreOtaPhase::Failed, "NODE LOST");
+    return;
+  }
+
+  switch (ota.phase) {
+    case CoreOtaPhase::Starting:
+      if (otaFinalStat != 0xFF && otaFinalStat != PIG_OTA_ST_DONE) {
+        coreOtaClose(CoreOtaPhase::Failed, coreOtaErrText(otaFinalStat));
+      } else if (otaGotReady) {
+        ota.phase = CoreOtaPhase::Sending;
+        ota.base = ota.nextSend = 0;
+        ota.ackMs = ota.progressMs = now;
+        Serial.println("[OTA] node ready — sending image");
+      } else if (now - ota.startMs > OTA_START_TIMEOUT_MS) {
+        coreOtaClose(CoreOtaPhase::Failed, "NODE DID NOT REPLY");
+      } else if (ota.lastBeginMs == 0 || now - ota.lastBeginMs >= OTA_BEGIN_RETRY_MS) {
+        ota.lastBeginMs = now;
+        coreOtaSendBegin();
+      }
+      break;
+
+    case CoreOtaPhase::Sending: {
+      uint8_t fin = otaFinalStat;
+      if (fin == PIG_OTA_ST_DONE) { ota.base = ota.chunks; coreOtaClose(CoreOtaPhase::Done, "UPDATED - REBOOTING"); return; }
+      if (fin != 0xFF)            { coreOtaClose(CoreOtaPhase::Failed, coreOtaErrText(fin)); return; }
+
+      uint16_t acked = otaAckNext;
+      if (acked > ota.chunks) acked = ota.chunks;
+      if (acked > ota.base) { ota.base = acked; ota.ackMs = ota.progressMs = now; }
+      if (ota.nextSend < ota.base) ota.nextSend = ota.base;
+
+      if (now - ota.progressMs > OTA_STALL_MS) { coreOtaClose(CoreOtaPhase::Failed, "TRANSFER STALLED"); return; }
+      // Lost frame or ack: go back to the first unacknowledged chunk.
+      if (ota.nextSend > ota.base && now - ota.ackMs > OTA_ACK_TIMEOUT_MS) {
+        ota.nextSend = ota.base;
+        ota.ackMs    = now;
+      }
+      while (ota.nextSend < ota.chunks && ota.nextSend < (uint16_t)(ota.base + PIG_OTA_WINDOW)) {
+        if (!coreOtaSendChunk(ota.nextSend)) break;   // busy radio -> retry next tick
+        ota.nextSend++;
+      }
+      break;
+    }
+    default: break;
+  }
+}
+
 // Send Biscuit Node a role assignment (MSG_ROLE_ASSIGN, type=5) then a channel
 // config (MSG_CONFIG_UPDATE, type=10). Both packets must be full size (212 bytes).
 // Called from coreReassignChannels / coreResendAdminToAll for isBiscuit nodes.
@@ -664,6 +928,8 @@ static void jcmkOnRecv(const esp_now_recv_info_t* info,
           coreReqTail = nxt;
         }
       }
+    } else if (type == PIG_MSG_OTA_ACK) {
+      coreOtaOnAck(info->src_addr, data, len);
     }
   } else {
     // ---- Node role (existing) ----
@@ -1741,6 +2007,7 @@ void coreModeTick() {
     biscuitCompatTick();                     // Biscuit Manager: commands + telemetry
   }
   uint32_t now = millis();
+  coreOtaTick();   // no-op unless a node firmware update is running
 
   // Stream the device position ~1 Hz so the app can pin APs to our location.
   static uint32_t biscuitGpsMs = 0;
@@ -1857,7 +2124,9 @@ void coreModeTick() {
   if (now - coreLastHbMs >= CORE_HB_MS) {
     coreLastHbMs = now;
     coreSendHeartbeatToAll();
-    coreResendAdminToAll();
+    // coreResendAdminToAll() blocks ~10 ms per node; skip it while an update is
+    // streaming so the transfer isn't starved (nodes keep their last assignment).
+    if (!coreOtaBusy()) coreResendAdminToAll();
   }
 
   // 3b. If Biscuit Report is on, also announce ourselves to a parent Biscuit
@@ -1873,6 +2142,9 @@ void coreModeTick() {
   // 4. Node timeout check
   bool changed = false;
   for (uint8_t i = 0; i < CORE_MAX_NODES; i++) {
+    // The node being updated goes quiet on its normal channels (it stops scanning and
+    // heartbeating while it receives), so don't let the roster drop it mid-transfer.
+    if (coreOtaBusy() && (int8_t)i == ota.node) continue;
     if (coreNodes[i].active && (now - coreNodes[i].lastHbMs) > CORE_NODE_TIMEOUT) {
       Serial.printf("[CORE] Node %d timed out\n", i);
       esp_now_del_peer(coreNodes[i].mac);
