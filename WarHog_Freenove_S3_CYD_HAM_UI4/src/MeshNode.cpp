@@ -1265,9 +1265,13 @@ static void meshParseMac(const String& s, uint8_t out[6]) {
 static void meshProfilesLoad() {
   memset(meshProfiles, 0, sizeof(meshProfiles));
   meshProfilesLoaded = true;
-  if (!sdOk || !SD.exists(MESH_PROFILE_PATH)) return;
+  if (!sdOk) return;
+  // SD + TFT share one SPI bus; hold the lock or the read collides with the
+  // display flush / SD-log task and silently returns nothing.
+  spiBusLock();
+  if (!SD.exists(MESH_PROFILE_PATH)) { spiBusUnlock(); return; }
   File f = SD.open(MESH_PROFILE_PATH, FILE_READ);
-  if (!f) return;
+  if (!f) { spiBusUnlock(); return; }
   int slot = -1;
   while (f.available()) {
     String line = f.readStringUntil('\n');
@@ -1299,13 +1303,19 @@ static void meshProfilesLoad() {
     }
   }
   f.close();
+  spiBusUnlock();
 }
 
 static void meshProfilesSaveToSD() {
   if (!sdOk) return;
-  SD.remove(MESH_PROFILE_PATH);
+  spiBusLock();   // same shared-SPI-bus rule as saveConfigToSD()
+  if (SD.exists(MESH_PROFILE_PATH)) SD.remove(MESH_PROFILE_PATH);
   File f = SD.open(MESH_PROFILE_PATH, FILE_WRITE);
-  if (!f) return;
+  if (!f) {
+    spiBusUnlock();
+    Serial.println("[PROFILE] Failed to open " "/mesh_profiles.cfg for write");
+    return;
+  }
   f.println("# warhog mesh profiles v1");
   for (uint8_t s = 0; s < MESH_NUM_PROFILES; s++) {
     if (!meshProfiles[s].used) continue;
@@ -1317,7 +1327,10 @@ static void meshProfilesSaveToSD() {
                (unsigned)meshProfiles[s].entry[e].group);
     }
   }
+  f.flush();
   f.close();
+  spiBusUnlock();
+  Serial.println("[PROFILE] Saved /mesh_profiles.cfg");
 }
 
 void meshProfilesInit() { if (!meshProfilesLoaded) meshProfilesLoad(); }
