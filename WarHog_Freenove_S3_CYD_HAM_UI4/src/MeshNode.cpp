@@ -85,6 +85,11 @@ static void tStore(void*) {
       appendWigleRow(String(r.mac), String(r.ssid), String(r.auth), String(r.ts),
                      r.ch, r.rssi, r.lat, r.lon, r.alt, r.acc);
       spiBusUnlock();
+    } else {
+      // Queue idle: push out any rows still buffered so a power cut costs ~nothing.
+      spiBusLock();
+      logFlushIfPending();
+      spiBusUnlock();
     }
   }
   vTaskDelete(nullptr);
@@ -2152,7 +2157,7 @@ void coreModeTick() {
     coreIsoLogMs = now;
     Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu | rx_drop txt=%lu req=%lu txtq_max=%u"
                   " | rt_us max=%lu gt5ms=%lu | loop_us max=%lu gt5ms=%lu | nodes=%u"
-                  " | heap free=%u big=%u min=%u psram=%u\n",
+                  " | heap free=%u big=%u min=%u psram=%u | sd rows=%lu dropped=%lu\n",
                   gLogQ ? (unsigned)uxQueueMessagesWaiting(gLogQ) : 0u,
                   (unsigned long)gStoreDrops,
                   (unsigned long)gRxTextDrops, (unsigned long)gRxReqDrops, (unsigned)gRxQMax,
@@ -2162,7 +2167,8 @@ void coreModeTick() {
                   (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                   (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                  (unsigned long)sdRowsWritten, (unsigned long)sdRowsDropped);
     // per-window reset so each line is self-contained
     gLoopMaxUs = 0; gLoopGt5 = 0; gRtMaxUs = 0; gRtGt5 = 0; gRxQMax = 0;
   }

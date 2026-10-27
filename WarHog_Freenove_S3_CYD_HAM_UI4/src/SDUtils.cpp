@@ -235,48 +235,61 @@ void closeLogFile() {
   }
 }
 
+// Rows that really reached the SD card vs rows dropped because the log file
+// was unusable. The on-screen "logged" figure is built from the return value of
+// appendWigleRow(), so these must only move on a real write.
+volatile uint32_t sdRowsWritten = 0;
+volatile uint32_t sdRowsDropped = 0;
+static uint32_t   linesSinceFlush = 0;
+
+// If the log handle is gone (failed reopen, rotate failure) retry now and then
+// instead of giving up until the next boot, so a transient SD error mid-drive
+// costs seconds of data rather than the rest of the wardrive.
+static bool tryReopenLog() {
+  static uint32_t lastTryMs = 0;
+  uint32_t nowMs = millis();
+  if (lastTryMs && (nowMs - lastTryMs) < 5000) return false;
+  lastTryMs = nowMs;
+  Serial.println("[SD] Log handle lost - reopening");
+  closeLogFile();
+  logFile = File();
+  if (openLogFile()) { Serial.println("[SD] Reopen OK"); return true; }
+  Serial.println("[SD] Reopen FAILED - will retry");
+  return false;
+}
+
 // Shared writer: rotates the CSV near the WDGoWars size cap, appends the line,
 // and handles silent write failures + batched flushing. Used by both WiFi and
-// BLE row builders so they behave identically.
-static void writeLogLine(const String& line) {
-  if (!sdOk || !logFile) return;
+// BLE row builders so they behave identically. Returns true only if the bytes
+// were accepted by the file.
+static bool writeLogLine(const String& line) {
+  if (!sdOk) { sdRowsDropped++; return false; }
+  if (!logFile && !tryReopenLog()) { sdRowsDropped++; return false; }
 
   // Rotate CSV before it reaches the size cap so every file stays < 30 MB
   if (csvBytes >= CSV_MAX_BYTES) {
     Serial.println("[SD] CSV size cap reached, rotating log file");
     closeLogFile();
-    if (!openLogFile()) return;
+    if (!openLogFile()) { sdRowsDropped++; return false; }
   }
 
   size_t written = logFile.println(line);
-  csvBytes += (uint32_t)written;
 
-  // Detect silent write failure — if println() returns 0 for a non-empty line,
-  // the SD card or file handle is broken. Attempt to reopen the log file once;
-  // if that also fails, mark SD as unusable until next boot.
+  // Detect silent write failure - println() returns 0 for a non-empty line when
+  // the SD card or file handle is broken. Reopen immediately and retry once.
   if (written == 0 && line.length() > 0) {
-    static uint8_t consecFails = 0;
-    consecFails++;
-    Serial.printf("[SD] Write failed (%u consecutive)\n", consecFails);
-    if (consecFails >= 3) {
-      Serial.println("[SD] Attempting log reopen...");
-      closeLogFile();
-      if (openLogFile()) {
-        Serial.println("[SD] Reopen OK — retrying write");
-        logFile.println(line);  // best-effort retry
-        consecFails = 0;
-      } else {
-        Serial.println("[SD] Reopen FAILED — SD marked unusable");
-        sdOk = false;
-      }
-    }
-    return;
+    Serial.println("[SD] Write failed - reopening log");
+    closeLogFile();
+    logFile = File();
+    if (openLogFile()) written = logFile.println(line);
+    if (written == 0) { sdRowsDropped++; return false; }
   }
+
+  csvBytes += (uint32_t)written;
+  sdRowsWritten++;
 
   // Flush less often to avoid stalls (SD writes can block hard)
   static uint32_t lastFlushMs = 0;
-  static uint32_t linesSinceFlush = 0;
-
   linesSinceFlush++;
 
   uint32_t nowMs = millis();
@@ -285,12 +298,23 @@ static void writeLogLine(const String& line) {
     lastFlushMs = nowMs;
     linesSinceFlush = 0;
   }
+  return true;
+}
+
+// Called by writers that go idle (e.g. the Core's SD task when its queue is
+// empty) so a quiet period does not leave rows sitting unflushed in RAM.
+void logFlushIfPending() {
+  if (sdOk && logFile && linesSinceFlush > 0) {
+    logFile.flush();
+    linesSinceFlush = 0;
+  }
 }
 
 bool appendWigleRow(const String& mac, const String& ssid, const String& auth,
                     const String& firstSeen, int channel, int rssi,
                     double lat, double lon, double altM, double accM) {
-  if (!sdOk || !logFile) return false;
+  // Not gated on logFile here: writeLogLine() reopens a lost handle and counts the drop.
+  if (!sdOk) { sdRowsDropped++; return false; }
 
   // Network whitelist: skip logging any SSID the user has explicitly listed
   // (e.g. their own home/work network). Exact, case-sensitive match against
@@ -327,8 +351,7 @@ bool appendWigleRow(const String& mac, const String& ssid, const String& auth,
   line += String(accM, 1); line += ",";
   line += ",,WIFI"; // RCOIs (empty), MfgrId (empty), Type
 
-  writeLogLine(line);
-  return true;
+  return writeLogLine(line);
 }
 
 // BLE observation row. Matches the WigleWifi-1.6 BLE contract WDGoWars accepts:
@@ -336,7 +359,7 @@ bool appendWigleRow(const String& mac, const String& ssid, const String& auth,
 void appendWigleBleRow(const String& mac, const String& name, int rssi,
                        const String& firstSeen,
                        double lat, double lon, double altM, double accM) {
-  if (!sdOk || !logFile) return;
+  if (!sdOk) return;
 
   String safeName = name;
   safeName.replace("\"", "\"\"");

@@ -3,6 +3,10 @@
 
 bool   openLogFile();
 void   closeLogFile();
+void   logFlushIfPending();
+// Rows actually written to / dropped from the CSV since boot.
+extern volatile uint32_t sdRowsWritten;
+extern volatile uint32_t sdRowsDropped;
 // Returns true if the row was actually written to the CSV, false if skipped
 // (SD/log file unavailable, or the SSID matches a configured whitelist entry).
 bool   appendWigleRow(const String& mac, const String& ssid, const String& auth,
