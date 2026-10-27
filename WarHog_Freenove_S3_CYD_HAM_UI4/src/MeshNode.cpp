@@ -17,6 +17,7 @@
 #include "pig_proto.h"   // Scheduler Phase 3: PIG_MSG_ADMIN_EXT explicit channel list (worker parse)
 #include "SpiBusLock.h"  // Scheduler Phase 4: recursive mutex for the shared SD+TFT SPI bus
 #include "esp_heap_caps.h"
+#include "PsramArray.h"   // big queues live in PSRAM: Core mode has ~10 KB internal RAM free
 #include "mbedtls/sha256.h"   // OTA: whole-image SHA-256 sent to the node in OTA_BEGIN
 
 // ================================================================
@@ -69,7 +70,7 @@ static uint32_t gLoopGt5    = 0;            // ticks exceeding 5 ms this window
 // the RX callback, consumer is this task; coreMirrorBuf producer is this task, consumer
 // is the loop. rt_* track the task's own cadence = the real RX-servicing jitter.
 struct CoreMirrorRec { char bssid[18], ssid[34], auth[12]; int16_t ch, rssi; };
-static CoreMirrorRec     coreMirrorBuf[64];
+static PsramArray<CoreMirrorRec> coreMirrorBuf(64);
 static volatile uint8_t  coreMirrorHead = 0, coreMirrorTail = 0;
 static TaskHandle_t      gRxDrainTask = nullptr;
 static volatile bool     gRxDrainRun  = false;
@@ -337,7 +338,8 @@ struct CorTextSlot {
 static CorReqSlot          coreReqBuf[CORE_REQ_QUEUE];
 static volatile uint8_t    coreReqHead = 0, coreReqTail = 0;
 
-static CorTextSlot         coreTextBuf[CORE_TEXT_QUEUE];
+// ~39 KB: written from the ESP-NOW RX callback (Wi-Fi task, not an ISR) -> safe in PSRAM.
+static PsramArray<CorTextSlot> coreTextBuf(CORE_TEXT_QUEUE);
 static volatile uint8_t    coreTextHead = 0, coreTextTail = 0;
 
 // ================================================================
@@ -431,7 +433,8 @@ static uint32_t biscuitLastHbMs   = 0;
 static uint32_t biscuitLastReqMs  = 0;
 
 #define BISCUIT_FWD_QUEUE 96
-static char biscuitFwd[BISCUIT_FWD_QUEUE][JCMK_TEXT_MAX + 1];
+struct BiscuitFwdSlot { char line[JCMK_TEXT_MAX + 1]; };
+static PsramArray<BiscuitFwdSlot> biscuitFwd(BISCUIT_FWD_QUEUE);
 static int  biscuitFwdCount = 0;
 
 // ================================================================
@@ -1983,8 +1986,8 @@ void biscuitForwardNetwork(const String& bssid, const String& ssid,
   if (biscuitFwdCount >= BISCUIT_FWD_QUEUE) return;  // drop overflow; device re-advertises
   String line = bssid + "," + ssid + "," + auth + "," + String(ch) + "," + String(rssi) + ",W";
   uint16_t slen = (line.length() < JCMK_TEXT_MAX) ? line.length() : JCMK_TEXT_MAX;
-  memcpy(biscuitFwd[biscuitFwdCount], line.c_str(), slen);
-  biscuitFwd[biscuitFwdCount][slen] = '\0';
+  memcpy(biscuitFwd[biscuitFwdCount].line, line.c_str(), slen);
+  biscuitFwd[biscuitFwdCount].line[slen] = '\0';
   biscuitFwdCount++;
 }
 
@@ -2034,7 +2037,7 @@ void biscuitReporterFlush() {
 
   // Forward this batch's networks as biscuit records.
   for (int i = 0; i < biscuitFwdCount; i++) {
-    jcmkSendText(String(biscuitFwd[i]));
+    jcmkSendText(String(biscuitFwd[i].line));
     biscuitRecordsSent++;
   }
   biscuitFwdCount = 0;
@@ -2148,13 +2151,18 @@ void coreModeTick() {
   if (now - coreIsoLogMs >= 5000) {
     coreIsoLogMs = now;
     Serial.printf("[CORE-ISO] SD store q: depth=%u drops=%lu | rx_drop txt=%lu req=%lu txtq_max=%u"
-                  " | rt_us max=%lu gt5ms=%lu | loop_us max=%lu gt5ms=%lu | nodes=%u\n",
+                  " | rt_us max=%lu gt5ms=%lu | loop_us max=%lu gt5ms=%lu | nodes=%u"
+                  " | heap free=%u big=%u min=%u psram=%u\n",
                   gLogQ ? (unsigned)uxQueueMessagesWaiting(gLogQ) : 0u,
                   (unsigned long)gStoreDrops,
                   (unsigned long)gRxTextDrops, (unsigned long)gRxReqDrops, (unsigned)gRxQMax,
                   (unsigned long)gRtMaxUs, (unsigned long)gRtGt5,
                   (unsigned long)gLoopMaxUs, (unsigned long)gLoopGt5,
-                  (unsigned)coreNodeCount);
+                  (unsigned)coreNodeCount,
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     // per-window reset so each line is self-contained
     gLoopMaxUs = 0; gLoopGt5 = 0; gRtMaxUs = 0; gRtGt5 = 0; gRxQMax = 0;
   }

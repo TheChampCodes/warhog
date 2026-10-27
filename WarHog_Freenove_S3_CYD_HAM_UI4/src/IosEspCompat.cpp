@@ -1,4 +1,5 @@
 #include "IosEspCompat.h"
+#include "PsramArray.h"
 #include "BoardPins.h"
 #include <stdarg.h>
 #include <string.h>
@@ -56,7 +57,7 @@ static const char* IE_CHANS = "1,2,3,4,5,6,7,8,9,10,11,12,13";
 #define IE_CMD_SLOT_LEN 256
 #define IE_CMD_RING     8
 struct IeCmdSlot { uint8_t data[IE_CMD_SLOT_LEN]; uint16_t len; };
-static IeCmdSlot         ieCmdRing[IE_CMD_RING];
+static PsramArray<IeCmdSlot> ieCmdRing(IE_CMD_RING);   // PSRAM: keeps internal RAM free for the SD driver
 static volatile uint8_t  ieCmdHead = 0;
 static volatile uint8_t  ieCmdTail = 0;
 
@@ -65,7 +66,7 @@ static volatile uint8_t  ieCmdTail = 0;
 #define IE_TX_RING     64
 #define IE_TX_PER_TICK 48
 struct IeTxSlot { uint8_t data[IE_TX_SLOT_LEN]; uint8_t len; };
-static IeTxSlot          ieTxRing[IE_TX_RING];
+static PsramArray<IeTxSlot>  ieTxRing(IE_TX_RING);      // PSRAM (was 12.8 KB static DRAM)
 static volatile uint8_t  ieTxHead = 0;
 static volatile uint8_t  ieTxTail = 0;
 
